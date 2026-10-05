@@ -79,6 +79,7 @@ export interface AccountQuotaStores {
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
   metaQuota: Record<string, MetaQuotaState>;
+  opencodeGoQuota?: Record<string, ClaudeQuotaState>;
   xaiQuota: Record<string, XaiQuotaState>;
 }
 
@@ -975,8 +976,10 @@ export const resolveAccountQuota = (
     );
   }
 
-  if (provider === 'claude') {
-    const quota = getCredentialScopedQuotaState(stores.claudeQuota, file);
+  if (provider === 'claude' || provider === 'opencode-go') {
+    const quota = getCredentialScopedQuotaState(
+      provider === 'opencode-go' ? stores.opencodeGoQuota ?? {} : stores.claudeQuota, file
+    );
     if (!quota) return emptyQuota(filePlanType);
     if (quota.status === 'loading') return loadingQuota(quota.planType ?? filePlanType);
     if (quota.status === 'error')

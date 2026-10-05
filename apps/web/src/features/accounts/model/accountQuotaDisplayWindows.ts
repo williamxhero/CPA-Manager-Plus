@@ -46,6 +46,7 @@ export type AccountQuotaWindowSource =
   | 'devin'
   | 'kimi'
   | 'meta'
+  | 'opencode-go'
   | 'xai'
   | 'summary';
 
@@ -511,7 +512,10 @@ const buildClaudeQuotaDisplayWindows = (
   row: AccountRow,
   options: BuildAccountQuotaDisplayWindowsOptions
 ): AccountQuotaDisplayWindow[] => {
-  const quota = getCredentialScopedQuotaState(options.stores.claudeQuota, row.raw);
+  const quota = getCredentialScopedQuotaState(
+    row.provider === 'opencode-go' ? options.stores.opencodeGoQuota ?? {} : options.stores.claudeQuota,
+    row.raw
+  );
   if (!quota) return [];
   const windows =
     quota.windows?.map((window) =>
@@ -525,7 +529,11 @@ const buildClaudeQuotaDisplayWindows = (
         resetAccuracy: window.resetAccuracy,
         limitWindowSeconds: window.limitWindowSeconds ?? null,
         modelScope: window.modelScope ?? { kind: 'all', complete: true },
-        source: 'claude',
+        source: row.provider === 'opencode-go' ? 'opencode-go' : 'claude',
+        kind: row.provider === 'opencode-go'
+          ? window.id === 'rolling' ? 'five_hour' : window.id === 'weekly' ? 'weekly' : 'monthly'
+          : undefined,
+        windowMode: row.provider === 'opencode-go' && window.id === 'monthly' ? 'calendar' : undefined,
         observedAtMs: quota.fetchedAtMs ?? null,
         nowMs: options.nowMs,
       })
@@ -835,7 +843,7 @@ export const buildAccountQuotaDisplayWindows = (
     if (windows.length) return windows;
   }
 
-  if (row.provider === 'claude') {
+  if (row.provider === 'claude' || row.provider === 'opencode-go') {
     const windows = buildClaudeQuotaDisplayWindows(row, options);
     if (windows.length) return windows;
   }
@@ -948,4 +956,3 @@ const buildMetaQuotaDisplayWindows = (
     });
   });
 };
-
