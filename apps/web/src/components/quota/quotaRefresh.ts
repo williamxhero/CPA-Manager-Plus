@@ -82,7 +82,7 @@ export const refreshQuotaWithConfig = async <TState, TData>({
       isCurrent: isRefreshCurrent,
     };
     const data =
-      config.type === 'meta'
+      (config.type === 'meta' || config.type === 'opencode-go')
         ? await config.fetchQuota(file, t, requestScope, context)
         : await config.fetchQuota(file, t, requestScope);
     if (!isRefreshCurrent()) return null;

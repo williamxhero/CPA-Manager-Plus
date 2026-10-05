@@ -667,4 +667,3 @@ export interface MetaQuotaState
   error?: string;
   errorStatus?: number;
 }
-

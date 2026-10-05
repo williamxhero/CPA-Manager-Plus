@@ -54,6 +54,7 @@ import {
   DEVIN_CONFIG,
   KIMI_CONFIG,
   META_CONFIG,
+  OPENCODE_GO_CONFIG,
   XAI_CONFIG,
   buildObservedCodexQuotaState,
   buildQuotaFailureState,
@@ -1374,6 +1375,7 @@ export function AccountsPage() {
   const devinQuota = useQuotaStore((state) => state.devinQuota);
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
   const metaQuota = useQuotaStore((state) => state.metaQuota);
+  const opencodeGoQuota = useQuotaStore((state) => state.opencodeGoQuota);
   const xaiQuota = useQuotaStore((state) => state.xaiQuota);
   const baseQuotaStores = useMemo(
     () => ({
@@ -1383,9 +1385,10 @@ export function AccountsPage() {
       devinQuota,
       kimiQuota,
       metaQuota,
+      opencodeGoQuota,
       xaiQuota,
     }),
-    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, xaiQuota]
+    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, opencodeGoQuota, xaiQuota]
   );
   const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
   const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
@@ -1393,6 +1396,7 @@ export function AccountsPage() {
   const setDevinQuota = useQuotaStore((state) => state.setDevinQuota);
   const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
   const setMetaQuota = useQuotaStore((state) => state.setMetaQuota);
+  const setOpenCodeGoQuota = useQuotaStore((state) => state.setOpenCodeGoQuota);
   const setXaiQuota = useQuotaStore((state) => state.setXaiQuota);
 
   const [activeView, setActiveView] = useState<AccountsView>(
@@ -3063,6 +3067,9 @@ export function AccountsPage() {
         case META_CONFIG.type:
           prune(META_CONFIG, setMetaQuota);
           break;
+        case OPENCODE_GO_CONFIG.type:
+          prune(OPENCODE_GO_CONFIG, setOpenCodeGoQuota);
+          break;
         default:
           break;
       }
@@ -3078,6 +3085,7 @@ export function AccountsPage() {
       setDevinQuota,
       setKimiQuota,
       setMetaQuota,
+      setOpenCodeGoQuota,
       setXaiQuota,
     ]
   );
@@ -3949,6 +3957,13 @@ export function AccountsPage() {
             if (!state.quotaInventoryObserved) {
               inventoryMode = 'partial';
             }
+          }
+          break;
+        }
+        case OPENCODE_GO_CONFIG.type: {
+          const state = getCredentialScopedQuotaState(baseQuotaStores.opencodeGoQuota ?? {}, row.raw);
+          if (state?.status === 'success' && state.windows.length > 0) {
+            fetchedAtMs = state.fetchedAtMs;
           }
           break;
         }
@@ -6473,6 +6488,14 @@ export function AccountsPage() {
               getScopedQuotaState(META_CONFIG, baseQuotaStores.metaQuota, row.raw)
             )
           );
+        case OPENCODE_GO_CONFIG.type:
+          return toAccountQuotaRefreshOutcome(
+            await refreshWithConfig(
+              OPENCODE_GO_CONFIG,
+              setOpenCodeGoQuota,
+              getScopedQuotaState(OPENCODE_GO_CONFIG, baseQuotaStores.opencodeGoQuota ?? {}, row.raw)
+            )
+          );
         default:
           return { status: 'error', error: t('common.unknown_error') };
       }
@@ -6485,6 +6508,7 @@ export function AccountsPage() {
       setDevinQuota,
       setKimiQuota,
       setMetaQuota,
+      setOpenCodeGoQuota,
       setXaiQuota,
       t,
       authFilesRequestScope,

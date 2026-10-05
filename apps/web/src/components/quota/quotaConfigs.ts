@@ -33,6 +33,7 @@ import {
   fetchDevinQuota,
   fetchKimiQuota,
   fetchMetaQuota,
+  fetchOpenCodeGoQuota,
   fetchXaiQuota,
   filterFreshCodexQuotaWindows,
   findCodexProviderWindowMatch,
@@ -60,7 +61,7 @@ import {
   scopeQuotaStateToCredential,
 } from '@/utils/quota/credentialScope';
 
-type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'devin' | 'meta';
+type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'devin' | 'meta' | 'opencode-go';
 
 export type { QuotaFetchContext };
 
@@ -899,3 +900,9 @@ export const META_CONFIG: QuotaConfig<MetaQuotaState, MetaQuotaData> = {
   scopeState: scopeCredentialQuotaState,
 };
 
+export const OPENCODE_GO_CONFIG: QuotaConfig<ClaudeQuotaState, ClaudeQuotaData> = {
+  ...CLAUDE_CONFIG,
+  type: 'opencode-go',
+  i18nPrefix: 'accounts',
+  fetchQuota: fetchOpenCodeGoQuota,
+};
