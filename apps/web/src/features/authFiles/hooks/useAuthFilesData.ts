@@ -30,6 +30,7 @@ import {
   type AuthJsonInputType,
 } from '@/features/authFiles/sessionAuthConverter';
 import { isRuntimeOnlyAuthFile } from '@/features/authFiles/constants';
+import { collapseOpenCodeGoAuthFileDuplicates } from '@/features/authFiles/model/openCodeGoAuthFiles';
 import {
   getAuthFileNameFromSelectionKey,
   getAuthFilePatchTarget,
@@ -788,7 +789,10 @@ export function useAuthFilesData(options: UseAuthFilesDataOptions = {}): UseAuth
   const selectionCount = selectedFiles.size;
   const commitFiles = useCallback((next: SetStateAction<AuthFileItem[]>) => {
     filesRevisionRef.current += 1;
-    setFiles(next);
+    setFiles((previousFiles) => {
+      const nextFiles = typeof next === 'function' ? next(previousFiles) : next;
+      return collapseOpenCodeGoAuthFileDuplicates(nextFiles);
+    });
   }, []);
 
   useLayoutEffect(() => {
@@ -969,7 +973,9 @@ export function useAuthFilesData(options: UseAuthFilesDataOptions = {}): UseAuth
           if (options?.throwOnError) throw new Error(t('notification.refresh_failed'));
           return;
         }
-        const nextFiles = Array.isArray(data?.files) ? data.files : [];
+        const nextFiles = collapseOpenCodeGoAuthFileDuplicates(
+          Array.isArray(data?.files) ? data.files : []
+        );
         commitFiles(nextFiles);
         return nextFiles;
       } catch (err: unknown) {
