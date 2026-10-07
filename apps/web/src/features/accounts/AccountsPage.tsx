@@ -208,7 +208,6 @@ import {
   formatHistorySuccessRate,
   getAccountHistoryTitle,
   formatPercent,
-  formatQuotaRemainingPercentDisplay,
   formatQuotaRemainingPercentParts,
   formatQuotaResetDisplay,
   formatQuotaResetRelative,
@@ -231,6 +230,7 @@ import {
   resolveAccountListSubscriptionQuota,
 } from '@/features/accounts/model/accountSubscriptionPresentation';
 import { resolveAccountQuotaWindowUsageAndForecast } from '@/features/accounts/model/accountQuotaWindowUsagePresentation';
+import { formatQuotaUnitFraction } from '@/features/accounts/model/quotaUnitFraction';
 import { formatCompactNumber, formatCompactUsd, formatUsd } from '@/utils/usage';
 import {
   getAuthFileCodexInspectionKeyForFile,
@@ -8551,11 +8551,17 @@ export function AccountsPage() {
     const hasForecast =
       windowUsageData.forecastCost !== null &&
       windowUsageData.forecastTokens !== null;
-    const percentText = windowRemaining !== null ? formatPercent(windowRemaining) : '-';
-    const remainingParts = formatQuotaRemainingPercentParts(percentText, i18n.language);
-    const remainingText = formatQuotaRemainingPercentDisplay(percentText, i18n.language);
+    const usedFraction = formatQuotaUnitFraction(window);
+    const percentText = usedFraction ?? formatPercent(windowRemaining);
+    const valueParts =
+      usedFraction !== null
+        ? usedFraction === '-'
+          ? null
+          : { prefix: t('accounts.detail_used'), percent: usedFraction }
+        : formatQuotaRemainingPercentParts(percentText, i18n.language);
+    const valueText = valueParts ? `${valueParts.prefix} ${valueParts.percent}` : '-';
     const cardTitle = [
-      `${readableLabel}: ${remainingText}${relativeReset ? ` | ${relativeReset}` : ''}`,
+      `${readableLabel}: ${valueText}${relativeReset ? ` | ${relativeReset}` : ''}`,
       hasActual
         ? `${t('accounts.quota_used_short')} ${formatCompactUsd(
             windowUsageData.currentCost!
@@ -8605,13 +8611,14 @@ export function AccountsPage() {
               </>
             ) : null}
             <strong className={styles.quotaWindowPercent}>
-              {remainingParts ? (
+              {valueParts ? (
                 <>
                   <span className={styles.quotaWindowPercentPrefix}>
-                    {remainingParts.prefix}
+                    {valueParts.prefix}
                   </span>
+                  {' '}
                   <span className={styles.quotaWindowPercentValue}>
-                    {remainingParts.percent}
+                    {valueParts.percent}
                   </span>
                 </>
               ) : (
@@ -8748,7 +8755,12 @@ export function AccountsPage() {
       mainListWindows
         .map((window) => {
           const label = getQuotaWindowReadableLabel(window, t);
-          return `${label}: ${formatPercent(window.remainingPercent)}`;
+          const usedFraction = formatQuotaUnitFraction(window);
+          const valueText =
+            usedFraction !== null
+              ? usedFraction === '-' ? '-' : `${t('accounts.detail_used')} ${usedFraction}`
+              : formatPercent(window.remainingPercent);
+          return `${label}: ${valueText}`;
         })
         .join('\n') || quotaEmptyLabel;
     const healthTitle = t(

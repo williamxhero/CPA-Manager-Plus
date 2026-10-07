@@ -1,5 +1,5 @@
 import {
-  getAccountQuotaSemanticGroup,
+  isModelScopedAccountQuotaWindow,
   type AccountQuotaDisplayWindow,
 } from './accountQuotaDisplayWindows';
 
@@ -8,6 +8,8 @@ export const getQuotaUnitCount = (kind: string | undefined, date = new Date()): 
     case 'five_hour':
     case '5h':
       return 5;
+    case 'daily':
+      return 1;
     case 'weekly':
       return 7;
     case 'monthly':
@@ -27,7 +29,7 @@ export const formatQuotaUnitFraction = (
   window: QuotaUnitWindow,
   date = new Date()
 ): string | null => {
-  if (getAccountQuotaSemanticGroup(window) !== 'standard') return null;
+  if (isModelScopedAccountQuotaWindow(window)) return null;
   const units = getQuotaUnitCount(window.kind, date);
   if (units === null) return null;
   const percent = window.usedPercent;

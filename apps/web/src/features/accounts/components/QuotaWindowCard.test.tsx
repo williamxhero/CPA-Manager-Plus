@@ -5,6 +5,7 @@ import type {
   AccountDetailWindowUsageSummary,
 } from '@/features/accounts/model/accountDetailViewModel';
 import { QuotaWindowCard } from './QuotaWindowCard';
+import { QuotaProgressBar } from './QuotaProgressBar';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,11 +108,12 @@ describe('QuotaWindowCard', () => {
     ['five_hour', 60, '3.0/5'],
     ['five_hour', 57, '2.9/5'],
     ['weekly', 60, '4.2/7'],
+    ['daily', 60, '0.6/1'],
     ['monthly', 60, '18.6/31'],
     ['five_hour', null, '-'],
     ['weekly', NaN, '-'],
   ] as const)(
-    'renders %s used %s as %s without changing remaining',
+    'renders %s used %s as %s instead of a remaining percentage',
     (kind, usedPercent, expected) => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 9, 15, 12));
@@ -123,7 +125,8 @@ describe('QuotaWindowCard', () => {
         });
         const used = renderer.root.findByProps({ 'data-quota-used-fraction': 'true' });
         expect(readText(used)).toBe(`accounts.detail_used: ${expected}`);
-        expect(readText(renderer.root)).toContain('40%');
+        expect(readText(renderer.root)).not.toContain('40%');
+        expect(renderer.root.findByType(QuotaProgressBar).props.percent).toBe(40);
         expect(readText(renderer.root)).not.toContain('0.0/');
         act(() => renderer.unmount());
       }
@@ -133,7 +136,6 @@ describe('QuotaWindowCard', () => {
   it.each([
     { kind: 'billing' as const, windowMode: 'non_window' as const },
     { kind: 'unknown' as const, windowMode: 'unknown' as const },
-    { kind: 'daily' as const },
     { modelScope: { kind: 'models' as const, models: ['test-model'], complete: true } },
   ])('leaves non-target quotas unchanged: %s', (overrides) => {
     const renderer = renderCard(makeWindow(overrides));

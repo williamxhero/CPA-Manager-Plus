@@ -449,11 +449,10 @@ export const QuotaWindowCard = ({
       <div className={styles.compactCard} title={compactTitle || q.label}>
         <span className={styles.compactLabel}>{q.label}</span>
         <QuotaProgress className={styles.compactBar} percent={q.remainingPercent} />
-        <span className={styles.compactValue}>{formatPercent(q.remainingPercent)}</span>
+        <span className={styles.compactValue}>
+          {usedFractionDisplay ?? formatPercent(q.remainingPercent)}
+        </span>
         <span className={styles.compactReset}>{q.amountLabel ?? boundaryDisplay}</span>
-        {usedFractionDisplay ? (
-          <span className={styles.compactUsed}>{usedFractionDisplay}</span>
-        ) : null}
       </div>
     );
   }
@@ -616,8 +615,14 @@ export const QuotaWindowCard = ({
       </div>
       <div className={styles.headerAside}>
         <div className={styles.remaining}>
-          <span>{t('accounts.detail_quota_remaining_label', { defaultValue: '剩余' })}</span>
-          <strong>{formatPercent(q.remainingPercent)}</strong>
+          {usedFractionDisplay ? (
+            <strong>{usedFractionDisplay}</strong>
+          ) : (
+            <>
+              <span>{t('accounts.detail_quota_remaining_label', { defaultValue: '剩余' })}</span>
+              <strong>{formatPercent(q.remainingPercent)}</strong>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -637,11 +642,11 @@ export const QuotaWindowCard = ({
         {progress}
         <div className={styles.meta}>
           {q.amountLabel ? <span className={styles.amountLabel}>{q.amountLabel}</span> : null}
-          {usedFractionDisplay ?? (
+          {usedFractionDisplay === null ? (
             <span>
               {t('accounts.detail_used')}: {formatPercent(q.usedPercent)}
             </span>
-          )}
+          ) : null}
           {q.windowMode === 'unknown' ? (
             <span className={styles.metaEmpty}>
               {t('accounts.detail_window_boundary_incomplete')}
@@ -728,7 +733,6 @@ export const QuotaWindowCard = ({
     >
       {header}
       {progress}
-      {usedFractionDisplay ? <div className={styles.meta}>{usedFractionDisplay}</div> : null}
       {q.windowMode !== 'unknown' ? (
         <div className={styles.compareColumns} data-quota-standard-comparison="true">
           <UsageColumn

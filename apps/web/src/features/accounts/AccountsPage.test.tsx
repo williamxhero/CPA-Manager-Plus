@@ -14,6 +14,7 @@ import {
   CODEX_CONFIG,
   CODEX_SUMMARY_CONFIG,
   META_CONFIG,
+  OPENCODE_GO_CONFIG,
   XAI_CONFIG,
 } from '@/components/quota';
 import { accountQuotaSnapshotApi, type ApiCallResult } from '@/services/api';
@@ -60,6 +61,8 @@ import {
   type CodexQuotaData,
 } from '@/utils/quota';
 import { buildKimiQuotaRows } from '@/utils/quota/builders';
+import { parseOpenCodeGoQuota } from '@/utils/quota/opencodeGoQuota';
+import type { TFunction } from 'i18next';
 import type {
   CredentialInspectionSnapshot,
   CredentialInspectionTarget,
@@ -567,6 +570,7 @@ const { mocks } = vi.hoisted(() => {
         devinQuota: {},
         kimiQuota: {},
         metaQuota: {},
+        opencodeGoQuota: {},
         xaiQuota: {},
         setAntigravityQuota: vi.fn(),
         setClaudeQuota: vi.fn(),
@@ -574,10 +578,12 @@ const { mocks } = vi.hoisted(() => {
         setDevinQuota: vi.fn(),
         setKimiQuota: vi.fn(),
         setMetaQuota: vi.fn(),
+        setOpencodeGoQuota: vi.fn(),
         setXaiQuota: vi.fn(),
       },
       t: (key: string, options?: Record<string, unknown>) => {
         if (key === 'auth_files.codex_plan_filter_unknown') return 'Unknown plan';
+        if (key === 'accounts.detail_used' && mocks.language === 'zh-CN') return '已用';
         if (!options) return key;
         const parts: string[] = [];
         if (typeof options.name === 'string') parts.push(options.name);
@@ -971,6 +977,7 @@ vi.mock('@/stores', () => ({
       devinQuota: Record<string, never>;
       kimiQuota: Record<string, never>;
       metaQuota: Record<string, never>;
+      opencodeGoQuota: Record<string, never>;
       xaiQuota: Record<string, never>;
       setAntigravityQuota: () => void;
       setClaudeQuota: () => void;
@@ -978,6 +985,7 @@ vi.mock('@/stores', () => ({
       setDevinQuota: () => void;
       setKimiQuota: () => void;
       setMetaQuota: () => void;
+      setOpencodeGoQuota: () => void;
       setXaiQuota: () => void;
     }) => unknown
   ) => selector(mocks.quotaState as Parameters<typeof selector>[0]),
@@ -1445,6 +1453,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.quotaState.devinQuota = {};
     mocks.quotaState.kimiQuota = {};
     mocks.quotaState.metaQuota = {};
+    mocks.quotaState.opencodeGoQuota = {};
     mocks.quotaState.xaiQuota = {};
     mocks.quotaDisplayWindowsOverride = null;
     mocks.quotaState.setAntigravityQuota.mockReset();
@@ -1453,6 +1462,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.quotaState.setDevinQuota.mockReset();
     mocks.quotaState.setKimiQuota.mockReset();
     mocks.quotaState.setMetaQuota.mockReset();
+    mocks.quotaState.setOpencodeGoQuota.mockReset();
     mocks.quotaState.setXaiQuota.mockReset();
     mocks.loadFiles.mockReset();
     mocks.loadFiles.mockImplementation(async () => mocks.files);
@@ -8733,7 +8743,7 @@ describe('AccountsPage replacement flows', () => {
     const quotaRegion = findAccountDetailRegion(renderer, selectionKey, 'quota');
 
     expect(readText(card)).toContain('Weekly');
-    expect(readText(card)).toContain('98%');
+    expect(readText(card)).toContain('accounts.detail_used 0.1/7');
     expect(readText(card)).not.toContain('Billing');
     expect(readText(card)).not.toContain('Pay-As-You-Go');
     expect(readText(card)).not.toContain('SuperGrok');
@@ -8750,7 +8760,8 @@ describe('AccountsPage replacement flows', () => {
     const standardGroup = renderer.root.findAllByProps({ 'data-quota-window-group': 'standard' });
     expect(standardGroup.length).toBeGreaterThan(0);
     expect(readText(standardGroup[0])).toContain('xai_quota.weekly_credits');
-    expect(readText(standardGroup[0])).toContain('98%');
+    expect(readText(standardGroup[0])).toContain('accounts.detail_used: 0.1/7');
+    expect(readText(standardGroup[0])).not.toContain('98%');
 
     const otherGroup = renderer.root.findByProps({ 'data-quota-window-group': 'other' });
     expect(readText(otherGroup)).toContain('GrokBuild');
@@ -9059,7 +9070,8 @@ describe('AccountsPage replacement flows', () => {
     const cardText = readText(card);
     expect(cardText).toContain('80%');
     expect(cardText).toContain('Weekly');
-    expect(cardText).toContain('60%');
+    expect(cardText).toContain('accounts.detail_used 2.8/7');
+    expect(cardText).not.toContain('60%');
     expect(cardText).not.toContain('accounts.quota_details_only');
   });
 
@@ -9113,7 +9125,8 @@ describe('AccountsPage replacement flows', () => {
     const cardText = readText(card);
     expect(cardText).toContain('75%');
     expect(cardText).toContain('Weekly');
-    expect(cardText).toContain('50%');
+    expect(cardText).toContain('accounts.detail_used 3.5/7');
+    expect(cardText).not.toContain('50%');
     expect(cardText).not.toContain('accounts.quota_details_only');
   });
 
@@ -9945,7 +9958,8 @@ describe('AccountsPage replacement flows', () => {
     const quotaLabel = quotaRegion.props['aria-label'] as string;
     expect(quotaLabel).toContain('accounts.list_header_quota');
     expect(quotaLabel).toContain('5h');
-    expect(quotaLabel).toContain('80%');
+    expect(quotaLabel).toContain('accounts.detail_used 1.0/5');
+    expect(quotaLabel).not.toContain('80%');
     expect(quotaLabel).toContain('accounts.open_detail:codex.json');
     expect(quotaLabel).toContain('accounts.detail_tab_quota');
     expect(quotaRegion.findAllByType('div')).toHaveLength(0);
@@ -13083,7 +13097,64 @@ describe('AccountsPage replacement flows', () => {
     expect(mocks.getAccountWindowUsage).toHaveBeenCalledTimes(1);
   });
 
-  it('presents quota window with remaining in header, used and forecast in fixed slots, and reset at bottom right', async () => {
+  it.each(['table', 'grid'] as const)('renders OpenCode Go credential list windows as 已用 0.1/5 and 已用 2.2/7 in %s layout', async (layout) => {
+    mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-07T12:00:00Z'));
+    mocks.language = 'zh-CN';
+    const file: AuthFileItem = {
+      name: 'opencode-go.json',
+      provider: 'opencode-go',
+      auth_index: 'go-1',
+      supports_quota: true,
+      quota_provider: 'opencode-go',
+    };
+    mocks.files = [file];
+    const data = parseOpenCodeGoQuota(
+      {
+        usage: {
+          rolling: { status: 'ok', percent: 2, resets_at: '2026-10-07T15:00:00Z' },
+          weekly: { status: 'ok', percent: 31, resetsAt: '2026-10-11T00:00:00Z' },
+          monthly: { status: 'ok', percent: 10, resets_at: '2026-11-01T00:00:00Z' },
+        },
+      },
+      mocks.t as TFunction
+    );
+    mocks.quotaState.opencodeGoQuota = {
+      [OPENCODE_GO_CONFIG.getStoreKey!(file)]: OPENCODE_GO_CONFIG.buildSuccessState(data, file),
+    };
+
+    const renderer = await renderAccountsPage();
+    await flushPromises();
+    const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
+    const windows = card.findAll(
+      (node) => typeof node.props['data-account-quota-window'] === 'string'
+    );
+    expect(windows).toHaveLength(layout === 'table' ? 3 : 2);
+    const expectedWindows = [
+      ['rolling', '0.1/5', '98%'],
+      ['weekly', '2.2/7', '69%'],
+      ...(layout === 'table' ? [['monthly', '3.1/31', '90%']] : []),
+    ];
+    for (const [key, fraction, percent] of expectedWindows) {
+      const window = card.findByProps({ 'data-account-quota-window': key });
+      const value = window.findByType('strong');
+      expect(readText(value)).toBe(`已用 ${fraction}`);
+      expect(readText(window)).not.toContain(percent);
+      expect(window.props.title).toContain(`已用 ${fraction}`);
+      expect(window.props.title).not.toContain(percent);
+      expect(findQuotaBarByWindow(card, window.props['data-account-quota-window']).props.style.width)
+        .toBe(percent);
+    }
+    const summary = layout === 'grid'
+      ? findGridQuotaRegion(renderer, getAuthFileSelectionKey(file))
+      : findAccountDetailRegion(renderer, getAuthFileSelectionKey(file), 'quota');
+    expect(summary.props.title).toContain('已用 0.1/5');
+    expect(summary.props.title).toContain('已用 2.2/7');
+    expect(summary.props.title).not.toMatch(/98%|69%/);
+  });
+
+  it('presents quota window with used units in header, used and forecast in fixed slots, and reset at bottom right', async () => {
     const file = makeCodexFile('codex-slots.json', 'auth-slots', 'slots@example.com');
     mocks.files = [file];
     mocks.panelFeatureAvailability = {
@@ -13149,10 +13220,10 @@ describe('AccountsPage replacement flows', () => {
     const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
     const cardText = readText(card);
 
-    // 1. Header shows window label and percentage (without reset time)
+    // 1. Header shows window label and used units (without reset time)
     expect(cardText).toContain('5h');
-    expect(cardText).toContain('Rem');
-    expect(cardText).toContain('60%');
+    expect(cardText).toContain('accounts.detail_used 2.0/5');
+    expect(cardText).not.toContain('60%');
     expect(cardText).toContain(expectedRelativeReset);
 
     // 2. Second line displays "used" icon, current cost and token separated by slash
@@ -13170,7 +13241,7 @@ describe('AccountsPage replacement flows', () => {
     const windowCards = card.findAll((node) => typeof node.props['data-account-quota-window'] === 'string');
     expect(windowCards).toHaveLength(1);
     const windowCard = windowCards[0];
-    expect(windowCard.props.title).toContain('5h: Rem 60%');
+    expect(windowCard.props.title).toContain('5h: accounts.detail_used 2.0/5');
     const headerNode = windowCard.children[0];
     const headerText = readText(headerNode);
     expect(headerText).not.toContain(expectedRelativeReset);
@@ -13214,13 +13285,13 @@ describe('AccountsPage replacement flows', () => {
     expect(windowCards).toHaveLength(1);
     const windowCard = windowCards[0];
 
-    // Header contains label and percentage, but NOT reset time
+    // Header contains label and used units, but NOT reset time
     const headerNode = windowCard.children[0];
     const headerText = readText(headerNode);
     expect(headerText).toContain('5h');
-    expect(headerText).toContain('剩余');
-    expect(headerText).toContain('80%');
-    expect(windowCard.props.title).toContain('5h: 剩余 80%');
+    expect(headerText).toContain('已用 1.0/5');
+    expect(headerText).not.toContain('80%');
+    expect(windowCard.props.title).toContain('5h: 已用 1.0/5');
     expect(headerText).not.toContain('5 天后');
 
     // Usage line contains reset time at bottom right
@@ -14323,7 +14394,7 @@ describe('AccountsPage replacement flows', () => {
     await flushPromises();
 
     expect(treeText(renderer)).toContain('Five hours');
-    expect(treeText(renderer)).toContain('accounts.detail_quota_remaining_label');
+    expect(treeText(renderer)).toContain('accounts.detail_used: 1.0/5');
     expect(accountQuotaSnapshotApi.write).not.toHaveBeenCalled();
     expect(accountQuotaSnapshotApi.query).not.toHaveBeenCalled();
     expect(mocks.getAccountWindowUsage).not.toHaveBeenCalled();
