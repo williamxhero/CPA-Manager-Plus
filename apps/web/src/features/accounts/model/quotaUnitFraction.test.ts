@@ -18,6 +18,7 @@ describe('quotaUnitFraction', () => {
   it.each([
     ['five_hour', 5],
     ['5h', 5],
+    ['daily', 1],
     ['weekly', 7],
   ])('maps %s to %s units', (kind, units) => {
     expect(getQuotaUnitCount(kind)).toBe(units);
@@ -48,6 +49,9 @@ describe('quotaUnitFraction', () => {
     ['five_hour', 60, '3.0/5'],
     ['five_hour', 57, '2.9/5'],
     ['weekly', 60, '4.2/7'],
+    ['five_hour', 2, '0.1/5'],
+    ['weekly', 31, '2.2/7'],
+    ['daily', 60, '0.6/1'],
     ['five_hour', 0, '0.0/5'],
     ['weekly', 100, '7.0/7'],
   ] as const)('formats %s used %s with one decimal', (kind, usedPercent, expected) => {
@@ -61,7 +65,7 @@ describe('quotaUnitFraction', () => {
     }
   );
 
-  it.each(['daily', 'billing', 'payg', 'product', 'summary', 'unknown', undefined] as const)(
+  it.each(['billing', 'payg', 'product', 'summary', 'unknown', undefined] as const)(
     'does not convert unsupported kind %s',
     (kind) => {
       expect(getQuotaUnitCount(kind)).toBeNull();
@@ -69,9 +73,12 @@ describe('quotaUnitFraction', () => {
     }
   );
 
-  it('does not convert non-window quotas even when a window kind is present', () => {
-    expect(formatQuotaUnitFraction(makeWindow({ windowMode: 'non_window' }))).toBeNull();
-  });
+  it.each(['unknown', 'non_window'] as const)(
+    'converts a provider-level window with a known kind even when mode is %s',
+    (windowMode) => {
+      expect(formatQuotaUnitFraction(makeWindow({ windowMode }))).toBe('3.0/5');
+    }
+  );
 
   it.each([
     { kind: 'models' as const, models: ['test-model'], complete: true },

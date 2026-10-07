@@ -47,7 +47,7 @@ describe('AccountQuotaTab quota units', () => {
     vi.useRealTimers();
   });
 
-  it('renders account-wide used fractions while preserving remaining and other quota values', () => {
+  it('renders account-wide used fractions instead of remaining while preserving other quota values', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2024, 1, 15, 12));
     const makeWindow = (
@@ -111,7 +111,7 @@ describe('AccountQuotaTab quota units', () => {
       'accounts.detail_used: 17.4/29',
       'accounts.detail_used: -',
     ]);
-    expect(readText(standard).match(/40%/g)).toHaveLength(4);
+    expect(readText(standard)).not.toContain('40%');
     const other = renderer.root.findByProps({ 'data-quota-window-group': 'other' });
     expect(readText(other)).toContain('accounts.detail_used: 60%');
     expect(readText(other)).toContain('$100 / $250');
