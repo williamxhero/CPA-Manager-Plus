@@ -11,7 +11,7 @@ import { Modal } from '@/components/ui/Modal';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { OpenAIKeyTestStatusIndicator } from '@/components/providers';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
-import { apiCallApi, getApiCallErrorDetails, modelsApi, providersApi } from '@/services/api';
+import { modelsApi, providersApi } from '@/services/api';
 import { useConfigStore, useNotificationStore } from '@/stores';
 import {
   coolingPolicyFromOverride,
@@ -29,11 +29,8 @@ import {
   hasInvalidThinkingLevels,
   modelsToEntries,
 } from '@/components/ui/modelInputListUtils';
-import {
-  buildApiKeyEntry,
-  buildOpenAIChatCompletionsEndpoint,
-  toCommittedOpenAIProviderSnapshot,
-} from '@/components/providers/utils';
+import { buildApiKeyEntry, toCommittedOpenAIProviderSnapshot } from '@/components/providers/utils';
+import { testOpenAIKey } from '@/components/providers/openAIKeyTest';
 import {
   appendIdleKeyTestStatus,
   removeKeyTestStatusAtIndex,
@@ -59,8 +56,6 @@ interface OpenAIEditDrawerProps {
 }
 
 type OpenAIFormBaseline = ReturnType<typeof buildOpenAIBaseline>;
-
-const OPENAI_TEST_TIMEOUT_MS = 30_000;
 
 const buildEmptyForm = (): OpenAIFormState => ({
   name: '',
@@ -157,11 +152,6 @@ const getErrorMessage = (err: unknown) => {
   return '';
 };
 
-const hasHeader = (headers: Record<string, string>, name: string) => {
-  const target = name.toLowerCase();
-  return Object.keys(headers).some((key) => key.toLowerCase() === target);
-};
-
 export function OpenAIEditDrawer({
   open,
   editIndex,
@@ -215,7 +205,6 @@ export function OpenAIEditDrawer({
     () => form.modelEntries.map((e) => e.name.trim()).filter(Boolean),
     [form.modelEntries]
   );
-  const hasConfiguredModels = form.modelEntries.some((entry) => entry.name.trim());
   const hasTestableKeys = form.apiKeyEntries.some(
     (entry) => entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)
   );
@@ -490,11 +479,6 @@ export function OpenAIEditDrawer({
         showNotification(t('notification.openai_test_url_required'), 'error');
         return false;
       }
-      const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
-      if (!endpoint) {
-        showNotification(t('notification.openai_test_url_required'), 'error');
-        return false;
-      }
       const keyEntry = form.apiKeyEntries[keyIndex];
       const keyAuthIndex = normalizeAuthIndex(keyEntry?.authIndex) ?? undefined;
       if (!keyEntry?.apiKey?.trim() && !keyAuthIndex) {
@@ -505,44 +489,18 @@ export function OpenAIEditDrawer({
         });
         return false;
       }
-      const modelName = testModel.trim() || availableModels[0] || '';
-      if (!modelName) {
-        showNotification(t('notification.openai_test_model_required'), 'error');
-        return false;
-      }
-      const customHeaders = buildHeaderObject(form.headers);
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...customHeaders,
-      };
-      if (!hasHeader(headers, 'authorization')) {
-        headers.Authorization = keyAuthIndex
-          ? 'Bearer $TOKEN$'
-          : `Bearer ${keyEntry.apiKey.trim()}`;
-      }
       setKeyTestStatuses((prev) => {
         const next = [...prev];
         next[keyIndex] = { status: 'loading', message: '' };
         return next;
       });
       try {
-        const result = await apiCallApi.request(
-          {
-            authIndex: keyAuthIndex,
-            method: 'POST',
-            url: endpoint,
-            header: Object.keys(headers).length ? headers : undefined,
-            data: JSON.stringify({
-              model: modelName,
-              messages: [{ role: 'user', content: 'Hi' }],
-              stream: false,
-              max_tokens: 5,
-            }),
-          },
-          { timeout: OPENAI_TEST_TIMEOUT_MS }
-        );
-        if (result.statusCode < 200 || result.statusCode >= 300)
-          throw new Error(getApiCallErrorDetails(result));
+        await testOpenAIKey({
+          baseUrl,
+          keyEntry,
+          headers: form.headers,
+          authIndex: keyAuthIndex,
+        });
         setKeyTestStatuses((prev) => {
           const next = [...prev];
           next[keyIndex] = { status: 'success', message: '' };
@@ -560,24 +518,14 @@ export function OpenAIEditDrawer({
           const next = [...prev];
           next[keyIndex] = {
             status: 'error',
-            message: isTimeout
-              ? t('ai_providers.openai_test_timeout', { seconds: OPENAI_TEST_TIMEOUT_MS / 1000 })
-              : message,
+            message: isTimeout ? t('ai_providers.openai_test_timeout', { seconds: 30 }) : message,
           };
           return next;
         });
         return false;
       }
     },
-    [
-      availableModels,
-      form.apiKeyEntries,
-      form.baseUrl,
-      form.headers,
-      showNotification,
-      t,
-      testModel,
-    ]
+    [form.apiKeyEntries, form.baseUrl, form.headers, showNotification, t]
   );
 
   const testSingleKey = useCallback(
@@ -806,9 +754,7 @@ export function OpenAIEditDrawer({
           {list.map((entry, index) => {
             const keyStatus = keyTestStatuses[index]?.status ?? 'idle';
             const weightError = getCredentialWeightError(entry.weight);
-            const canTestKey =
-              Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)) &&
-              hasConfiguredModels;
+            const canTestKey = Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex));
             return (
               <div key={index} className={styles.keyTableRow}>
                 <div className={styles.keyTableColIndex}>{index + 1}</div>
@@ -1096,7 +1042,6 @@ export function OpenAIEditDrawer({
                       disabled ||
                       isTestingKeys ||
                       testStatus === 'loading' ||
-                      !hasConfiguredModels ||
                       !hasTestableKeys
                     }
                     className={styles.modelTestAllButton}

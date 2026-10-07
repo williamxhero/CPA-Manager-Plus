@@ -14,10 +14,9 @@ import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { OpenAIKeyTestStatusIndicator, type OpenAIFormApiKeyEntry } from '@/components/providers';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useNotificationStore } from '@/stores';
-import { apiCallApi, getApiCallErrorDetails } from '@/services/api';
 import { normalizeAuthIndex } from '@/utils/authIndex';
-import { buildHeaderObject, hasHeader } from '@/utils/headers';
-import { buildApiKeyEntry, buildOpenAIChatCompletionsEndpoint } from '@/components/providers/utils';
+import { buildApiKeyEntry } from '@/components/providers/utils';
+import { testOpenAIKey } from '@/components/providers/openAIKeyTest';
 import {
   appendIdleKeyTestStatus,
   removeKeyTestStatusAtIndex,
@@ -31,8 +30,6 @@ import {
 } from '@/utils/credentialWeight';
 import styles from './AiProvidersPage.module.scss';
 import layoutStyles from './AiProvidersEditLayout.module.scss';
-
-const OPENAI_TEST_TIMEOUT_MS = 30_000;
 
 const getErrorMessage = (err: unknown) => {
   if (err instanceof Error) return err.message;
@@ -97,7 +94,6 @@ export function AiProvidersOpenAIEditPage() {
     !isTestingKeys &&
     !hasInvalidWeight &&
     !hasInvalidThinkingLevels(form.modelEntries);
-  const hasConfiguredModels = form.modelEntries.some((entry) => entry.name.trim());
   const hasTestableKeys = form.apiKeyEntries.some(
     (entry) => entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)
   );
@@ -151,12 +147,6 @@ export function AiProvidersOpenAIEditPage() {
         return false;
       }
 
-      const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
-      if (!endpoint) {
-        showNotification(t('notification.openai_test_url_required'), 'error');
-        return false;
-      }
-
       const keyEntry = form.apiKeyEntries[keyIndex];
       const keyAuthIndex = normalizeAuthIndex(keyEntry?.authIndex) ?? undefined;
       if (!keyEntry?.apiKey?.trim() && !keyAuthIndex) {
@@ -167,46 +157,16 @@ export function AiProvidersOpenAIEditPage() {
         return false;
       }
 
-      const modelName = testModel.trim() || availableModels[0] || '';
-      if (!modelName) {
-        showNotification(t('notification.openai_test_model_required'), 'error');
-        return false;
-      }
-
-      const customHeaders = buildHeaderObject(form.headers);
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...customHeaders,
-      };
-      if (!hasHeader(headers, 'authorization')) {
-        headers.Authorization = keyAuthIndex
-          ? 'Bearer $TOKEN$'
-          : `Bearer ${keyEntry.apiKey.trim()}`;
-      }
-
       // Set loading state for this key
       setDraftKeyTestStatus(keyIndex, { status: 'loading', message: '' });
 
       try {
-        const result = await apiCallApi.request(
-          {
-            authIndex: keyAuthIndex,
-            method: 'POST',
-            url: endpoint,
-            header: Object.keys(headers).length ? headers : undefined,
-            data: JSON.stringify({
-              model: modelName,
-              messages: [{ role: 'user', content: 'Hi' }],
-              stream: false,
-              max_tokens: 5,
-            }),
-          },
-          { timeout: OPENAI_TEST_TIMEOUT_MS }
-        );
-
-        if (result.statusCode < 200 || result.statusCode >= 300) {
-          throw new Error(getApiCallErrorDetails(result));
-        }
+        await testOpenAIKey({
+          baseUrl,
+          keyEntry,
+          headers: form.headers,
+          authIndex: keyAuthIndex,
+        });
 
         setDraftKeyTestStatus(keyIndex, { status: 'success', message: '' });
         return true;
@@ -218,22 +178,13 @@ export function AiProvidersOpenAIEditPage() {
             : '';
         const isTimeout = errorCode === 'ECONNABORTED' || message.toLowerCase().includes('timeout');
         const errorMessage = isTimeout
-          ? t('ai_providers.openai_test_timeout', { seconds: OPENAI_TEST_TIMEOUT_MS / 1000 })
+          ? t('ai_providers.openai_test_timeout', { seconds: 30 })
           : message;
         setDraftKeyTestStatus(keyIndex, { status: 'error', message: errorMessage });
         return false;
       }
     },
-    [
-      form.baseUrl,
-      form.apiKeyEntries,
-      form.headers,
-      testModel,
-      availableModels,
-      t,
-      setDraftKeyTestStatus,
-      showNotification,
-    ]
+    [form.baseUrl, form.apiKeyEntries, form.headers, t, setDraftKeyTestStatus, showNotification]
   );
 
   const testSingleKey = useCallback(
@@ -256,24 +207,6 @@ export function AiProvidersOpenAIEditPage() {
     const baseUrl = form.baseUrl.trim();
     if (!baseUrl) {
       const message = t('notification.openai_test_url_required');
-      setTestStatus('error');
-      setTestMessage(message);
-      showNotification(message, 'error');
-      return;
-    }
-
-    const endpoint = buildOpenAIChatCompletionsEndpoint(baseUrl);
-    if (!endpoint) {
-      const message = t('notification.openai_test_url_required');
-      setTestStatus('error');
-      setTestMessage(message);
-      showNotification(message, 'error');
-      return;
-    }
-
-    const modelName = testModel.trim() || availableModels[0] || '';
-    if (!modelName) {
-      const message = t('notification.openai_test_model_required');
       setTestStatus('error');
       setTestMessage(message);
       showNotification(message, 'error');
@@ -330,8 +263,6 @@ export function AiProvidersOpenAIEditPage() {
     isTestingKeys,
     form.baseUrl,
     form.apiKeyEntries,
-    testModel,
-    availableModels,
     t,
     setTestStatus,
     setTestMessage,
@@ -414,9 +345,7 @@ export function AiProvidersOpenAIEditPage() {
           {list.map((entry, index) => {
             const keyStatus = keyTestStatuses[index]?.status ?? 'idle';
             const weightError = getCredentialWeightError(entry.weight);
-            const canTestKey =
-              Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)) &&
-              hasConfiguredModels;
+            const canTestKey = Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex));
 
             return (
               <div key={index} className={styles.keyTableRow}>
@@ -720,7 +649,6 @@ export function AiProvidersOpenAIEditPage() {
                       disableControls ||
                       isTestingKeys ||
                       testStatus === 'loading' ||
-                      !hasConfiguredModels ||
                       !hasTestableKeys
                     }
                     title={t('ai_providers.openai_test_all_hint')}
