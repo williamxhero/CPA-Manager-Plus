@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TFunction } from 'i18next';
+import type { ClaudeQuotaState } from '@/types';
+import { refreshQuotaWithConfig } from '@/components/quota/quotaRefresh';
+import { collapseOpenCodeGoAuthFileDuplicates } from '@/features/authFiles/model/openCodeGoAuthFiles';
 import { authFilesApi } from '@/services/api/authFiles';
 import { apiClient } from '@/services/api/client';
 import { sha256RawTextHex } from '@/utils/apiKeyHash';
@@ -66,6 +69,69 @@ describe('OpenCode Go account quota', () => {
         { key_id: `opencode-go-key-${sha256RawTextHex('test-key')}` },
         expect.objectContaining({ cpampScopedRequest: true })
       );
+    } finally {
+      download.mockRestore();
+      post.mockRestore();
+    }
+  });
+
+  it('refreshes a collapsed credential as one account using its canonical plugin key', async () => {
+    const keyId = `opencode-go-key-${'a'.repeat(64)}`;
+    const fileName = `${keyId}.json`;
+    const files = collapseOpenCodeGoAuthFileDuplicates([
+      { name: fileName, id: fileName, provider: 'opencode-go', auth_index: 'go-1' },
+      {
+        name: fileName,
+        id: keyId,
+        provider: 'opencode-go',
+        auth_index: 'go-1',
+        supports_quota: true,
+        quota_provider: 'opencode-go',
+        recent_requests: [{ success: 3, failed: 0 }],
+      },
+    ]);
+    expect(files).toHaveLength(1);
+    const file = files[0];
+    const download = vi.spyOn(authFilesApi, 'downloadJsonObject');
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(payload);
+    let opencodeGoQuota: Record<string, ClaudeQuotaState> = {};
+    try {
+      const result = await refreshQuotaWithConfig({
+        config: OPENCODE_GO_CONFIG,
+        file,
+        t,
+        isCurrent: () => true,
+        setQuota: (updater) => {
+          opencodeGoQuota = typeof updater === 'function' ? updater(opencodeGoQuota) : updater;
+        },
+      });
+      expect(result?.status).toBe('success');
+      expect(post).toHaveBeenCalledExactlyOnceWith(
+        OPENCODE_GO_QUOTA_PATH,
+        { key_id: keyId },
+        undefined
+      );
+      expect(download).not.toHaveBeenCalled();
+      expect(Object.keys(opencodeGoQuota)).toEqual([`${fileName}::go-1`]);
+      expect(opencodeGoQuota[`${fileName}::go-1`].windows).toHaveLength(3);
+      const rows = buildAccountRows(files, {
+        antigravityQuota: {},
+        claudeQuota: {},
+        codexQuota: {},
+        devinQuota: {},
+        kimiQuota: {},
+        metaQuota: {},
+        xaiQuota: {},
+        opencodeGoQuota,
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        provider: 'opencode-go',
+        runtimeOnly: false,
+        quota: { remainingPercent: 87.6, planType: 'OpenCode Go' },
+        usage: { success: 3, failure: 0 },
+      });
+      expect(isQuotaRefreshSupportedProvider(rows[0].provider)).toBe(true);
     } finally {
       download.mockRestore();
       post.mockRestore();
