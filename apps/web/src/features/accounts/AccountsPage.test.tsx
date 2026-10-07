@@ -13152,7 +13152,76 @@ describe('AccountsPage replacement flows', () => {
     expect(summary.props.title).toContain('已用 0.1/5');
     expect(summary.props.title).toContain('已用 2.2/7');
     expect(summary.props.title).not.toMatch(/98%|69%/);
+    expect(readText(card)).toContain('accounts.list_plan_remaining_days:25');
+
+    await act(async () => {
+      findDetailButtonByName(renderer, file.name).props.onClick();
+      await Promise.resolve();
+    });
+    await flushPromises();
+    const drawer = renderer.root.findByType(Drawer);
+    expect(readText(drawer.props.title)).toContain('accounts.list_plan_remaining_days:25');
+    expect(drawer.findByProps({ title: 'accounts.list_plan_remaining_days_tooltip:25' })).toBeTruthy();
   });
+
+  it.each(['table', 'grid'] as const)(
+    'does not show OpenCode Go remaining days for missing, expired or another credential quota in %s layout',
+    async (layout) => {
+      mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-07T12:00:00Z'));
+      const missingFile: AuthFileItem = {
+        name: 'opencode-missing.json',
+        provider: 'opencode-go',
+        auth_index: 'missing',
+      };
+      const expiredFile: AuthFileItem = {
+        name: 'opencode-expired.json',
+        provider: 'opencode-go',
+        auth_index: 'expired',
+      };
+      const replacedFile: AuthFileItem = {
+        name: 'opencode-replaced.json',
+        provider: 'opencode-go',
+        auth_index: 'new-credential',
+      };
+      const previousFile = { ...replacedFile, auth_index: 'old-credential' };
+      const quotaFor = (file: AuthFileItem, resetAtMs: number) =>
+        OPENCODE_GO_CONFIG.buildSuccessState(
+          {
+            planType: 'OpenCode Go',
+            quotaInventoryObserved: true,
+            windows: [{ id: 'monthly', label: 'Monthly', usedPercent: 10, resetLabel: '-', resetAtMs }],
+          },
+          file
+        );
+      const staleQuota = quotaFor(previousFile, Date.now() + 20 * 86_400_000);
+      mocks.files = [missingFile, expiredFile, replacedFile];
+      mocks.quotaState.opencodeGoQuota = {
+        [OPENCODE_GO_CONFIG.getStoreKey!(expiredFile)]: quotaFor(expiredFile, Date.now() - 1000),
+        [OPENCODE_GO_CONFIG.getStoreKey!(previousFile)]: staleQuota,
+        [replacedFile.name]: staleQuota,
+      };
+
+      const renderer = await renderAccountsPage();
+      await flushPromises();
+      for (const file of mocks.files) {
+        expect(readText(findAccountCardByKey(renderer, getAuthFileSelectionKey(file))))
+          .not.toContain('accounts.list_plan_remaining_days:');
+        await act(async () => {
+          findDetailButtonByName(renderer, file.name).props.onClick();
+          await Promise.resolve();
+        });
+        await flushPromises();
+        const drawer = renderer.root.findByType(Drawer);
+        expect(readText(drawer.props.title)).not.toContain('accounts.list_plan_remaining_days:');
+        await act(async () => {
+          drawer.props.onClose();
+          await Promise.resolve();
+        });
+      }
+    }
+  );
 
   it('presents quota window with used units in header, used and forecast in fixed slots, and reset at bottom right', async () => {
     const file = makeCodexFile('codex-slots.json', 'auth-slots', 'slots@example.com');
