@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
-import type { CodexQuotaState } from '@/types';
+import type { ClaudeQuotaState, CodexQuotaState } from '@/types';
+import { isValidQuotaResetAtMs } from '@/utils/quota/formatters';
 import { normalizeStringValue, parseIdTokenPayload } from '@/utils/quota/parsers';
 import { parseTimestampMs } from '@/utils/timestamp';
 import { getPlanPresentation, resolveAuthFilePlanType, type PlanPresentation } from '@/utils/plans';
@@ -98,10 +99,11 @@ export const resolveCodexSubscriptionUntilMs = (
 export const buildAccountSubscriptionPresentation = (input: {
   row: Pick<AccountRow, 'provider' | 'planType' | 'raw'>;
   codexQuota?: CodexQuotaState | null;
+  opencodeGoQuota?: ClaudeQuotaState | null;
   t?: TFunction;
   nowMs?: number;
 }): AccountSubscriptionPresentation => {
-  const { row, codexQuota, t, nowMs = Date.now() } = input;
+  const { row, codexQuota, opencodeGoQuota, t, nowMs = Date.now() } = input;
   const effectivePlanType = normalizeStringValue(
     codexQuota?.planType ?? row.planType ?? resolveAuthFilePlanType(row.raw)
   );
@@ -125,6 +127,11 @@ export const buildAccountSubscriptionPresentation = (input: {
     liveSubscriptionUntilMs = resolved.liveSubscriptionUntilMs;
     tokenSubscriptionUntilMs = resolved.tokenSubscriptionUntilMs;
     subscriptionUntilMs = resolved.subscriptionUntilMs;
+  } else if (row.provider === 'opencode-go') {
+    // Go's monthly reset is the plan boundary; rolling and weekly resets are not.
+    const resetAtMs = opencodeGoQuota?.windows.find((window) => window.id === 'monthly')?.resetAtMs;
+    liveSubscriptionUntilMs = isValidQuotaResetAtMs(resetAtMs) ? resetAtMs : null;
+    subscriptionUntilMs = liveSubscriptionUntilMs;
   }
 
   const subscriptionUntilLabelKey =
@@ -133,7 +140,7 @@ export const buildAccountSubscriptionPresentation = (input: {
       : 'accounts.detail_subscription_until_token';
 
   const remainingDays =
-    isPaidCodex && subscriptionUntilMs !== null && subscriptionUntilMs > nowMs
+    subscriptionUntilMs !== null && subscriptionUntilMs > nowMs
       ? Math.max(1, Math.ceil((subscriptionUntilMs - nowMs) / 86400000))
       : null;
 

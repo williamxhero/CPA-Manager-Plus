@@ -8704,6 +8704,20 @@ export function AccountsPage() {
     );
   };
 
+  const resolveAccountSubscriptionPresentation = (row: AccountRow) =>
+    buildAccountSubscriptionPresentation({
+      row,
+      codexQuota: resolveAccountListSubscriptionQuota({
+        provider: row.provider,
+        displayCodexQuota:
+          row.provider === CODEX_CONFIG.type ? getDisplayCodexQuota(row.raw) : undefined,
+      }),
+      opencodeGoQuota:
+        row.provider === OPENCODE_GO_CONFIG.type
+          ? getCredentialScopedQuotaState(opencodeGoQuota, row.raw)
+          : undefined,
+    });
+
   const resolveAccountRowContext = (row: AccountRow) => {
     const recommendation = recommendationBySelectionKey.get(row.selectionKey) ?? null;
     const accountHistory = accountHistoryByRowKey.get(row.selectionKey) ?? null;
@@ -8725,15 +8739,7 @@ export function AccountsPage() {
       quotaWindows,
       requestEvidence: requestEvidenceBySelectionKey.get(row.selectionKey),
     });
-    const displayCodexQuota =
-      row.provider === CODEX_CONFIG.type ? getDisplayCodexQuota(row.raw) : undefined;
-    const subscriptionPresentation = buildAccountSubscriptionPresentation({
-      row,
-      codexQuota: resolveAccountListSubscriptionQuota({
-        provider: row.provider,
-        displayCodexQuota,
-      }),
-    });
+    const subscriptionPresentation = resolveAccountSubscriptionPresentation(row);
     const codexQuotaState =
       row.provider === CODEX_CONFIG.type
         ? getDisplayCodexResetEvidenceQuota(row)
@@ -9691,6 +9697,11 @@ export function AccountsPage() {
     }
 
     const providerIcon = getAuthFileIcon(selectedRow.provider, resolvedTheme);
+    const subscriptionPresentation = resolveAccountSubscriptionPresentation(selectedRow);
+    // Preserve the existing Codex detail title while adding days for other subscriptions.
+    const remainingDays = subscriptionPresentation.isPaidCodex
+      ? null
+      : subscriptionPresentation.remainingDays;
 
     const detailTabs: Array<{ id: DetailTab; label: string }> = [
       { id: 'overview', label: t('accounts.detail_tab_overview') },
@@ -9959,7 +9970,24 @@ export function AccountsPage() {
                 {getProviderLabel(selectedRow.provider, t)} ·{' '}
                 <span title={detailView.identity.planPresentation?.fullLabel}>
                   {detailView.identity.planPresentation?.shortLabel ?? '-'}
-                </span>{' '}
+                </span>
+                {remainingDays !== null ? (
+                  <>
+                    {' '}
+                    <span
+                      className={styles.accountPlanBadge}
+                      title={t('accounts.list_plan_remaining_days_tooltip', {
+                        days: remainingDays,
+                        defaultValue: `剩余 ${remainingDays} 天`,
+                      })}
+                    >
+                      {t('accounts.list_plan_remaining_days', {
+                        days: remainingDays,
+                        defaultValue: `${remainingDays} 天`,
+                      })}
+                    </span>
+                  </>
+                ) : null}{' '}
                 ·{' '}
                 <button
                   type="button"
