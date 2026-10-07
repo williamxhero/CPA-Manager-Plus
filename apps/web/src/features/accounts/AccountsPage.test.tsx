@@ -13097,13 +13097,14 @@ describe('AccountsPage replacement flows', () => {
     expect(mocks.getAccountWindowUsage).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['table', 'grid'] as const)('renders OpenCode Go credential list windows as 已用 0.1/5 and 已用 2.2/7 in %s layout', async (layout) => {
+  it.each(['table', 'grid'] as const)('renders OpenCode Go name, Go plan and used-unit windows in %s layout', async (layout) => {
     mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-07T12:00:00Z'));
     mocks.language = 'zh-CN';
     const file: AuthFileItem = {
       name: 'opencode-go.json',
+      label: 'OpenCode Go',
       provider: 'opencode-go',
       auth_index: 'go-1',
       supports_quota: true,
@@ -13153,6 +13154,8 @@ describe('AccountsPage replacement flows', () => {
     expect(summary.props.title).toContain('已用 2.2/7');
     expect(summary.props.title).not.toMatch(/98%|69%/);
     expect(readText(card)).toContain('accounts.list_plan_remaining_days:25');
+    expect(readText(card.findByProps({ title: 'OpenCode Go' }))).toBe('OpenCode Go');
+    expect(card.findByProps({ title: 'Go' }).children[0]).toBe('Go');
 
     await act(async () => {
       findDetailButtonByName(renderer, file.name).props.onClick();
@@ -13162,6 +13165,8 @@ describe('AccountsPage replacement flows', () => {
     const drawer = renderer.root.findByType(Drawer);
     expect(readText(drawer.props.title)).toContain('accounts.list_plan_remaining_days:25');
     expect(drawer.findByProps({ title: 'accounts.list_plan_remaining_days_tooltip:25' })).toBeTruthy();
+    expect(readText(drawer.findByProps({ title: 'OpenCode Go' }))).toBe('OpenCode Go');
+    expect(readText(drawer.findByProps({ title: 'Go' }))).toBe('Go');
   });
 
   it.each(['table', 'grid'] as const)(
