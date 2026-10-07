@@ -59,6 +59,54 @@ const renderMatrix = (
 };
 
 describe('AccountQuotaMatrix', () => {
+  it.each(['five_hour', 'weekly', 'monthly', 'unknown'] as const)(
+    'preserves remaining percentages for %s rather than converting them to used units',
+    (kind) => {
+      const rowKind = kind === 'weekly' ? 'weekly' : 'five_hour';
+      const renderer = renderMatrix('remaining-test', {
+        windowKeys: new Set(['known', 'unknown']),
+        rows: [
+          {
+            key: rowKind,
+            label: kind,
+            cells: [
+              {
+                groupLabel: 'Known',
+                displayLabel: 'Known',
+                window: makeQuotaWindow({
+                  key: 'known',
+                  kind,
+                  usedPercent: 60,
+                  remainingPercent: 40,
+                }),
+              },
+              {
+                groupLabel: 'Unknown',
+                displayLabel: 'Unknown',
+                window: makeQuotaWindow({
+                  key: 'unknown',
+                  kind,
+                  usedPercent: null,
+                  remainingPercent: null,
+                }),
+              },
+            ],
+          },
+        ],
+      });
+      const known = renderer.root.findByProps({
+        'data-account-quota-matrix-cell': `${rowKind}:Known`,
+      });
+      expect(known.findByType('strong').children).toEqual(['40%']);
+      expect(known.props.title).toContain('40%');
+      const unknown = renderer.root.findByProps({
+        'data-account-quota-matrix-cell': `${rowKind}:Unknown`,
+      });
+      expect(unknown.findByType('strong').children).toEqual(['-']);
+      act(() => renderer.unmount());
+    }
+  );
+
   it('renders only phrasing-compatible span elements', () => {
     const renderer = renderMatrix('test-account', {
       windowKeys: new Set(['gemini-5h', 'claude-5h']),
