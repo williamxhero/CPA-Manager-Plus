@@ -10,6 +10,23 @@
   gap: $spacing-sm;
 }
 
+.pluginCard {
+  .cardTitle {
+    min-width: 0;
+  }
+
+  .cardTitleIcon,
+  .pluginIconFallback {
+    flex-shrink: 0;
+  }
+}
+
+.pluginTitleText {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .cardTitleIcon {
   width: 24px;
   height: 24px;
