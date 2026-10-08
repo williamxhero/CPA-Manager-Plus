@@ -1,4 +1,16 @@
 {
+  "qwen_quota": {
+    "plan": "Plan",
+    "quota": "Quota",
+    "refresh": "Refresh",
+    "expires_at": "Expires on",
+    "days_left": "Days remaining: {{days}}",
+    "remaining": "Remaining {{percent}}%",
+    "used": "Used {{percent}}%",
+    "reset_at": "Reset time",
+    "resets_in_days": "Days until reset: {{days}}",
+    "observed_at": "Observed at"
+  },
   "manager_updates": {
     "server_version": "Manager Server version",
     "new_version": "CPAMP {{version}} is available",

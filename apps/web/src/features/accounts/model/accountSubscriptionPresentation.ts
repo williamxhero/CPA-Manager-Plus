@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { ClaudeQuotaState, CodexQuotaState } from '@/types';
+import type { QwenQuotaState } from '@/utils/quota/qwenQuota';
 import { isValidQuotaResetAtMs } from '@/utils/quota/formatters';
 import { normalizeStringValue, parseIdTokenPayload } from '@/utils/quota/parsers';
 import { parseTimestampMs } from '@/utils/timestamp';
@@ -100,13 +101,19 @@ export const buildAccountSubscriptionPresentation = (input: {
   row: Pick<AccountRow, 'provider' | 'planType' | 'raw'>;
   codexQuota?: CodexQuotaState | null;
   opencodeGoQuota?: ClaudeQuotaState | null;
+  qwenQuota?: QwenQuotaState | null;
   t?: TFunction;
   nowMs?: number;
 }): AccountSubscriptionPresentation => {
   const { row, codexQuota, opencodeGoQuota, t, nowMs = Date.now() } = input;
-  const effectivePlanType = normalizeStringValue(
-    codexQuota?.planType ?? row.planType ?? resolveAuthFilePlanType(row.raw)
-  );
+  const qwenQuota = input.qwenQuota?.status === 'success' ? input.qwenQuota : null;
+  const effectivePlanType =
+    row.provider === 'qwen' && input.qwenQuota?.status === 'error'
+      ? null
+      : normalizeStringValue(
+          (row.provider === 'qwen' ? qwenQuota?.plan : codexQuota?.planType) ??
+            row.planType ?? resolveAuthFilePlanType(row.raw)
+        );
   const planPresentation = getPlanPresentation({
     provider: row.provider,
     planType: effectivePlanType,
@@ -132,6 +139,11 @@ export const buildAccountSubscriptionPresentation = (input: {
     const resetAtMs = opencodeGoQuota?.windows.find((window) => window.id === 'monthly')?.resetAtMs;
     liveSubscriptionUntilMs = isValidQuotaResetAtMs(resetAtMs) ? resetAtMs : null;
     subscriptionUntilMs = liveSubscriptionUntilMs;
+  } else if (row.provider === 'qwen') {
+    // Quota window resets are not subscription boundaries.
+    const planEndMs = qwenQuota?.planEndMs;
+    liveSubscriptionUntilMs = isValidQuotaResetAtMs(planEndMs) ? planEndMs : null;
+    subscriptionUntilMs = liveSubscriptionUntilMs;
   }
 
   const subscriptionUntilLabelKey =
@@ -140,9 +152,14 @@ export const buildAccountSubscriptionPresentation = (input: {
       : 'accounts.detail_subscription_until_token';
 
   const remainingDays =
-    subscriptionUntilMs !== null && subscriptionUntilMs > nowMs
-      ? Math.max(1, Math.ceil((subscriptionUntilMs - nowMs) / 86400000))
-      : null;
+    row.provider === 'qwen' &&
+    typeof qwenQuota?.daysLeft === 'number' &&
+    Number.isFinite(qwenQuota.daysLeft) &&
+    qwenQuota.daysLeft >= 0
+      ? qwenQuota.daysLeft
+      : subscriptionUntilMs !== null && subscriptionUntilMs > nowMs
+        ? Math.max(1, Math.ceil((subscriptionUntilMs - nowMs) / 86400000))
+        : null;
 
   return {
     effectivePlanType,

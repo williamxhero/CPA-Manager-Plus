@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountRow } from './accountRows';
+import type { QwenQuotaState } from '@/utils/quota/qwenQuota';
 import type { ClaudeQuotaState, CodexQuotaState } from '@/types';
 import {
   buildAccountSubscriptionPresentation,
@@ -243,6 +244,48 @@ describe('accountSubscriptionPresentation', () => {
       expect(result.tokenSubscriptionUntilMs).toBe(futureMs);
       expect(result.subscriptionUntilLabelKey).toBe('accounts.detail_subscription_until_token');
       expect(result.remainingDays).toBe(20);
+    });
+
+    describe('Qwen plan remaining days', () => {
+      const row = makeAccountRow({ provider: 'qwen', planType: null });
+      const makeQuota = (overrides: Partial<QwenQuotaState> = {}): QwenQuotaState => ({
+        status: 'success', plan: 'Qwen Pro', planStatus: 'active', planStartMs: null,
+        planEndMs: null, daysLeft: null, observedAtMs: FIXED_NOW_MS, metrics: [],
+        windows: [{ id: 'monthly', label: 'Monthly', usedPercent: 20, remainingPercent: 80, resetAtMs: FIXED_NOW_MS + 30 * 86_400_000, resetsInDays: 30 }],
+        ...overrides,
+      });
+
+      it('uses the actual plan end rather than monthly quota reset when daysLeft is absent', () => {
+        const result = buildAccountSubscriptionPresentation({
+          row, qwenQuota: makeQuota({ planEndMs: FIXED_NOW_MS + 12 * 86_400_000 }), nowMs: FIXED_NOW_MS,
+        });
+        expect(result.effectivePlanType).toBe('Qwen Pro');
+        expect(result.planPresentation?.shortLabel).toBe('Qwen Pro');
+        expect(result.remainingDays).toBe(12);
+        expect(result.subscriptionUntilMs).toBe(FIXED_NOW_MS + 12 * 86_400_000);
+        expect(result.isPaidCodex).toBe(false);
+      });
+
+      it.each([0, 12])('uses observed daysLeft %s without inventing an expiry date', (daysLeft) => {
+        const result = buildAccountSubscriptionPresentation({ row, qwenQuota: makeQuota({ daysLeft }), nowMs: FIXED_NOW_MS });
+        expect(result.remainingDays).toBe(daysLeft);
+        expect(result.subscriptionUntilMs).toBeNull();
+      });
+
+      it.each([null, -1, NaN, Infinity])('keeps invalid or missing daysLeft %s unknown', (daysLeft) => {
+        expect(buildAccountSubscriptionPresentation({ row, qwenQuota: makeQuota({ daysLeft }), nowMs: FIXED_NOW_MS }).remainingDays).toBeNull();
+      });
+
+      it('prefers explicit observed daysLeft over a computed plan-end countdown', () => {
+        expect(buildAccountSubscriptionPresentation({ row, qwenQuota: makeQuota({ planEndMs: FIXED_NOW_MS + 12 * 86_400_000, daysLeft: 11 }), nowMs: FIXED_NOW_MS }).remainingDays).toBe(11);
+      });
+
+      it('does not show failed Qwen snapshot days or apply Qwen plans to other providers', () => {
+        expect(buildAccountSubscriptionPresentation({ row: { ...row, planType: 'stale plan' }, qwenQuota: makeQuota({ status: 'error', daysLeft: 12 }), nowMs: FIXED_NOW_MS })).toMatchObject({ remainingDays: null, effectivePlanType: null, planPresentation: null });
+        const result = buildAccountSubscriptionPresentation({ row: makeAccountRow({ provider: 'claude', planType: 'pro' }), qwenQuota: makeQuota({ daysLeft: 12 }), nowMs: FIXED_NOW_MS });
+        expect(result.remainingDays).toBeNull();
+        expect(result.effectivePlanType).toBe('pro');
+      });
     });
 
     describe('OpenCode Go monthly remaining days', () => {

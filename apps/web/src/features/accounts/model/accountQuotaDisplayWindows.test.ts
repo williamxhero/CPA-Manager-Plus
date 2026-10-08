@@ -74,6 +74,37 @@ const buildRow = (file: AuthFileItem, stores: AccountQuotaStores = emptyStores()
 };
 
 describe('accountQuotaDisplayWindows', () => {
+  it('keeps one Qwen display window per raw window without invented cycle boundaries', () => {
+    const file: AuthFileItem = { name: 'qwen.json', quota_provider: ' QWEN ' };
+    const stores = emptyStores();
+    stores.qwenQuota = {
+      [getQuotaCredentialStoreKey(file)]: {
+        ...buildQuotaCredentialIdentity(file),
+        status: 'success', plan: 'Qwen Pro', planStatus: 'active', planStartMs: null,
+        planEndMs: null, daysLeft: 10, observedAtMs: 1_770_000_000_000, metrics: [],
+        windows: [
+          { id: 'monthly', label: 'Monthly', usedPercent: 30, remainingPercent: 70, resetAtMs: 1_780_000_000_000, resetsInDays: 10 },
+          { id: 'bonus', label: 'Bonus quota', usedPercent: 0, remainingPercent: 100, resetAtMs: null, resetsInDays: null },
+        ],
+      },
+    };
+    const row = buildRow(file, stores);
+    const windows = buildAccountQuotaDisplayWindows(row, { stores, t, translateQuotaWindowLabel });
+    expect(windows).toHaveLength(2);
+    expect(windows[0]).toMatchObject({ key: 'qwen:monthly', source: 'qwen', remainingPercent: 70, usedPercent: 30, limitWindowSeconds: null, fromMs: null, toMs: null, windowMode: 'unknown' });
+    expect(windows[1]).toMatchObject({ key: 'qwen:bonus', label: 'Bonus quota', remainingPercent: 100, resetAtMs: null });
+
+    stores.qwenQuota[getQuotaCredentialStoreKey(file)].observedAtMs = null;
+    stores.qwenQuota[getQuotaCredentialStoreKey(file)].fetchedAtMs = 1_770_000_000_000;
+    expect(buildAccountQuotaDisplayWindows(row, { stores, t, translateQuotaWindowLabel })[0]).toMatchObject({ observedAtMs: null, quotaProgressObservedAtMs: null });
+
+    stores.qwenQuota[getQuotaCredentialStoreKey(file)].status = 'error';
+    expect(buildAccountQuotaDisplayWindows(row, { stores, t, translateQuotaWindowLabel })).toEqual([]);
+    stores.qwenQuota[getQuotaCredentialStoreKey(file)].status = 'success';
+    stores.qwenQuota[getQuotaCredentialStoreKey(file)].windows = [];
+    expect(buildAccountQuotaDisplayWindows(row, { stores, t, translateQuotaWindowLabel })).toEqual([]);
+  });
+
   describe('quota window classification', () => {
     it.each(['fixed', 'calendar', 'rolling'] as const)(
       'classifies an account-wide %s window as standard quota',

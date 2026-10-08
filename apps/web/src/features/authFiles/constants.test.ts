@@ -101,10 +101,11 @@ describe('authFiles constants - meta', () => {
     expect(isQuotaRefreshSupportedProvider('xai')).toBe(true);
     expect(isQuotaRefreshSupportedProvider('x-ai')).toBe(true);
     expect(isQuotaRefreshSupportedProvider('grok')).toBe(true);
+    expect(isQuotaRefreshSupportedProvider('qwen')).toBe(true);
+    expect(isQuotaRefreshSupportedProvider(' QWEN ')).toBe(true);
 
     // Other non-quota providers
     expect(isQuotaRefreshSupportedProvider('vertex')).toBe(false);
-    expect(isQuotaRefreshSupportedProvider('qwen')).toBe(false);
     expect(isQuotaRefreshSupportedProvider('iflow')).toBe(false);
     expect(isQuotaRefreshSupportedProvider('')).toBe(false);
   });

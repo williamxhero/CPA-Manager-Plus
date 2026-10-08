@@ -1,4 +1,16 @@
 {
+  "qwen_quota": {
+    "plan": "Тариф",
+    "quota": "Квота",
+    "refresh": "Обновить",
+    "expires_at": "Дата окончания",
+    "days_left": "Осталось дней: {{days}}",
+    "remaining": "Осталось {{percent}}%",
+    "used": "Использовано {{percent}}%",
+    "reset_at": "Время сброса",
+    "resets_in_days": "Дней до сброса: {{days}}",
+    "observed_at": "Время наблюдения"
+  },
   "manager_updates": {
     "server_version": "Версия Manager Server",
     "new_version": "Доступна версия CPAMP {{version}}",

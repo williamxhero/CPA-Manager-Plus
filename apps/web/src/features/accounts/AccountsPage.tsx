@@ -55,6 +55,7 @@ import {
   KIMI_CONFIG,
   META_CONFIG,
   OPENCODE_GO_CONFIG,
+  QWEN_CONFIG,
   XAI_CONFIG,
   buildObservedCodexQuotaState,
   buildQuotaFailureState,
@@ -185,6 +186,7 @@ import {
   buildAccountQuotaWindowDefinitions,
   type AccountQuotaWindowDefinition,
 } from '@/features/accounts/model/accountQuotaWindowDefinitions';
+import { QwenQuotaCard } from './components/QwenQuotaCard';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import { statusBarDataFromRecentRequests } from '@/utils/recentRequests';
 import {
@@ -1376,6 +1378,7 @@ export function AccountsPage() {
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
   const metaQuota = useQuotaStore((state) => state.metaQuota);
   const opencodeGoQuota = useQuotaStore((state) => state.opencodeGoQuota);
+  const qwenQuota = useQuotaStore((state) => state.qwenQuota);
   const xaiQuota = useQuotaStore((state) => state.xaiQuota);
   const baseQuotaStores = useMemo(
     () => ({
@@ -1386,9 +1389,10 @@ export function AccountsPage() {
       kimiQuota,
       metaQuota,
       opencodeGoQuota,
+      qwenQuota,
       xaiQuota,
     }),
-    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, opencodeGoQuota, xaiQuota]
+    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, opencodeGoQuota, qwenQuota, xaiQuota]
   );
   const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
   const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
@@ -1397,6 +1401,7 @@ export function AccountsPage() {
   const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
   const setMetaQuota = useQuotaStore((state) => state.setMetaQuota);
   const setOpenCodeGoQuota = useQuotaStore((state) => state.setOpenCodeGoQuota);
+  const setQwenQuota = useQuotaStore((state) => state.setQwenQuota);
   const setXaiQuota = useQuotaStore((state) => state.setXaiQuota);
 
   const [activeView, setActiveView] = useState<AccountsView>(
@@ -3070,6 +3075,9 @@ export function AccountsPage() {
         case OPENCODE_GO_CONFIG.type:
           prune(OPENCODE_GO_CONFIG, setOpenCodeGoQuota);
           break;
+        case QWEN_CONFIG.type:
+          prune(QWEN_CONFIG, setQwenQuota);
+          break;
         default:
           break;
       }
@@ -3086,6 +3094,7 @@ export function AccountsPage() {
       setKimiQuota,
       setMetaQuota,
       setOpenCodeGoQuota,
+      setQwenQuota,
       setXaiQuota,
     ]
   );
@@ -3957,6 +3966,13 @@ export function AccountsPage() {
             if (!state.quotaInventoryObserved) {
               inventoryMode = 'partial';
             }
+          }
+          break;
+        }
+        case QWEN_CONFIG.type: {
+          const state = getScopedQuotaState(QWEN_CONFIG, baseQuotaStores.qwenQuota ?? {}, row.raw);
+          if (state?.status === 'success') {
+            fetchedAtMs = state.fetchedAtMs;
           }
           break;
         }
@@ -6488,6 +6504,14 @@ export function AccountsPage() {
               getScopedQuotaState(META_CONFIG, baseQuotaStores.metaQuota, row.raw)
             )
           );
+        case QWEN_CONFIG.type:
+          return toAccountQuotaRefreshOutcome(
+            await refreshWithConfig(
+              QWEN_CONFIG,
+              setQwenQuota,
+              getScopedQuotaState(QWEN_CONFIG, baseQuotaStores.qwenQuota ?? {}, row.raw)
+            )
+          );
         case OPENCODE_GO_CONFIG.type:
           return toAccountQuotaRefreshOutcome(
             await refreshWithConfig(
@@ -6509,6 +6533,7 @@ export function AccountsPage() {
       setKimiQuota,
       setMetaQuota,
       setOpenCodeGoQuota,
+      setQwenQuota,
       setXaiQuota,
       t,
       authFilesRequestScope,
@@ -8716,6 +8741,10 @@ export function AccountsPage() {
         row.provider === OPENCODE_GO_CONFIG.type
           ? getCredentialScopedQuotaState(opencodeGoQuota, row.raw)
           : undefined,
+      qwenQuota:
+        row.provider === QWEN_CONFIG.type
+          ? getScopedQuotaState(QWEN_CONFIG, qwenQuota ?? {}, row.raw)
+          : undefined,
     });
 
   const resolveAccountRowContext = (row: AccountRow) => {
@@ -8813,6 +8842,15 @@ export function AccountsPage() {
       hasRecentRequests,
     };
   };
+
+  const renderQwenQuotaCard = (row: AccountRow) => (
+    <QwenQuotaCard
+      quota={getScopedQuotaState(QWEN_CONFIG, qwenQuota ?? {}, row.raw)}
+      refreshing={isManualQuotaRefreshing(row)}
+      disabled={disableControls || quotaRefreshing || row.runtimeOnly}
+      onRefresh={() => void refreshAccountQuota(row, 'summary')}
+    />
+  );
 
   const renderAccountHistory = (
     row: AccountRow,
@@ -9363,8 +9401,8 @@ export function AccountsPage() {
                   <div
                     className={styles.accountGridCardQuota}
                     title={ctx.quotaWindowTitle}
-                    role={isSelectionMode ? undefined : 'button'}
-                    tabIndex={isSelectionMode ? undefined : 0}
+                    role={isSelectionMode || row.provider === QWEN_CONFIG.type ? undefined : 'button'}
+                    tabIndex={isSelectionMode || row.provider === QWEN_CONFIG.type ? undefined : 0}
                     onClick={
                       isSelectionMode
                         ? undefined
@@ -9385,7 +9423,7 @@ export function AccountsPage() {
                           }
                     }
                   >
-                    {ctx.mainListWindows.length > 0 ? (
+                    {row.provider === QWEN_CONFIG.type ? renderQwenQuotaCard(row) : ctx.mainListWindows.length > 0 ? (
                       <div className={styles.accountGridCardQuotaList}>
                         {row.provider === ANTIGRAVITY_CONFIG.type
                           ? quotaWindowGroups.map((group) => (
@@ -9631,6 +9669,9 @@ export function AccountsPage() {
                   {renderAccountHistory(row, ctx)}
 
                   {(() => {
+                    if (row.provider === QWEN_CONFIG.type) {
+                      return <div className={styles.accountCardBusiness}>{renderQwenQuotaCard(row)}</div>;
+                    }
                     const resetCreditsAriaSuffix =
                       ctx.hasCodexResetCredits && ctx.codexResetCreditsCount !== null
                         ? `. ${t('accounts.detail_quota_reset_records', { defaultValue: '重置记录' })}: ${ctx.codexResetCreditsCount}`

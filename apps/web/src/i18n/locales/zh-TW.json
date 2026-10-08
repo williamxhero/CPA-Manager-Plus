@@ -1,4 +1,16 @@
 {
+  "qwen_quota": {
+    "plan": "方案",
+    "quota": "額度",
+    "refresh": "重新整理",
+    "expires_at": "到期日",
+    "days_left": "剩餘天數：{{days}} 天",
+    "remaining": "剩餘 {{percent}}%",
+    "used": "已用 {{percent}}%",
+    "reset_at": "重設時間",
+    "resets_in_days": "距重設天數：{{days}} 天",
+    "observed_at": "觀測時間"
+  },
   "manager_updates": {
     "server_version": "Manager Server 版本",
     "new_version": "CPAMP {{version}} 已發佈",

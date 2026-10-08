@@ -15,6 +15,7 @@ import {
   CODEX_SUMMARY_CONFIG,
   META_CONFIG,
   OPENCODE_GO_CONFIG,
+  QWEN_CONFIG,
   XAI_CONFIG,
 } from '@/components/quota';
 import { accountQuotaSnapshotApi, type ApiCallResult } from '@/services/api';
@@ -62,6 +63,7 @@ import {
 } from '@/utils/quota';
 import { buildKimiQuotaRows } from '@/utils/quota/builders';
 import { parseOpenCodeGoQuota } from '@/utils/quota/opencodeGoQuota';
+import { parseQwenQuota } from '@/utils/quota/qwenQuota';
 import type { TFunction } from 'i18next';
 import type {
   CredentialInspectionSnapshot,
@@ -571,6 +573,7 @@ const { mocks } = vi.hoisted(() => {
         kimiQuota: {},
         metaQuota: {},
         opencodeGoQuota: {},
+        qwenQuota: {},
         xaiQuota: {},
         setAntigravityQuota: vi.fn(),
         setClaudeQuota: vi.fn(),
@@ -579,6 +582,7 @@ const { mocks } = vi.hoisted(() => {
         setKimiQuota: vi.fn(),
         setMetaQuota: vi.fn(),
         setOpencodeGoQuota: vi.fn(),
+        setQwenQuota: vi.fn(),
         setXaiQuota: vi.fn(),
       },
       t: (key: string, options?: Record<string, unknown>) => {
@@ -978,6 +982,7 @@ vi.mock('@/stores', () => ({
       kimiQuota: Record<string, never>;
       metaQuota: Record<string, never>;
       opencodeGoQuota: Record<string, never>;
+      qwenQuota: Record<string, never>;
       xaiQuota: Record<string, never>;
       setAntigravityQuota: () => void;
       setClaudeQuota: () => void;
@@ -986,6 +991,7 @@ vi.mock('@/stores', () => ({
       setKimiQuota: () => void;
       setMetaQuota: () => void;
       setOpencodeGoQuota: () => void;
+      setQwenQuota: () => void;
       setXaiQuota: () => void;
     }) => unknown
   ) => selector(mocks.quotaState as Parameters<typeof selector>[0]),
@@ -1454,6 +1460,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.quotaState.kimiQuota = {};
     mocks.quotaState.metaQuota = {};
     mocks.quotaState.opencodeGoQuota = {};
+    mocks.quotaState.qwenQuota = {};
     mocks.quotaState.xaiQuota = {};
     mocks.quotaDisplayWindowsOverride = null;
     mocks.quotaState.setAntigravityQuota.mockReset();
@@ -1463,6 +1470,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.quotaState.setKimiQuota.mockReset();
     mocks.quotaState.setMetaQuota.mockReset();
     mocks.quotaState.setOpencodeGoQuota.mockReset();
+    mocks.quotaState.setQwenQuota.mockReset();
     mocks.quotaState.setXaiQuota.mockReset();
     mocks.loadFiles.mockReset();
     mocks.loadFiles.mockImplementation(async () => mocks.files);
@@ -13095,6 +13103,84 @@ describe('AccountsPage replacement flows', () => {
     expect(readText(cardAfterRerender)).toContain('$0.50');
     expect(readText(cardAfterRerender)).toContain('50.0K');
     expect(mocks.getAccountWindowUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['table', 'grid'] as const)('renders Qwen plan, windows, metrics and refreshes in %s layout', async (layout) => {
+    mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
+    const file: AuthFileItem = {
+      name: 'qwen.json', label: 'Qwen', provider: 'qwen', auth_index: 'qwen-test',
+      supports_quota: true, quota_provider: 'qwen',
+    };
+    mocks.files = [file];
+    const data = parseQwenQuota({ cards: [{
+      auth_index: 'qwen-test', plan: 'Token Plan 个人版 Standard', planStatus: '生效中',
+      planEnd: '2027-09-18T00:00:00+08:00', daysLeft: 345,
+      observedAt: '2026-10-08T19:15:43+08:00',
+      windows: [{ window: '1month', usedPercent: 100, remainingPercent: 0,
+        resetTime: '2026-10-18T00:00:00+08:00', resetsInDays: 10 }],
+      metrics: [{ key: 'addon_remaining_credits', label: '加购包剩余额度', value: 0, unit: 'credits', format: 'number' }],
+      error: null,
+    }] }, mocks.t as TFunction);
+    mocks.quotaState.qwenQuota = {
+      [QWEN_CONFIG.getStoreKey!(file)]: QWEN_CONFIG.buildSuccessState(data, file),
+    };
+    const quotaFetch = vi.spyOn(QWEN_CONFIG, 'fetchQuota').mockResolvedValue({
+      ...data, daysLeft: 344,
+      windows: data.windows.map((window) => ({ ...window, usedPercent: 25, remainingPercent: 75 })),
+    });
+    mocks.quotaState.setQwenQuota.mockImplementation((updater) => {
+      mocks.quotaState.qwenQuota = typeof updater === 'function'
+        ? updater(mocks.quotaState.qwenQuota) : updater;
+    });
+    const renderer = await renderAccountsPage();
+    await flushPromises();
+    const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
+    const qwen = card.findByProps({ 'data-qwen-quota-card': 'true' });
+    expect(readText(qwen)).toContain('Token Plan 个人版 Standard');
+    expect(readText(qwen)).toContain('生效中');
+    expect(readText(qwen)).toContain('qwen_quota.expires_at');
+    expect(readText(qwen)).toContain('qwen_quota.days_left:345');
+    expect(readText(qwen)).toContain('qwen_quota.resets_in_days:10');
+    expect(readText(qwen)).toContain('加购包剩余额度: 0 credits');
+    expect(readText(qwen)).toContain('qwen_quota.observed_at');
+    expect(qwen.findByProps({ role: 'meter' }).props['aria-valuenow']).toBe(0);
+    await act(async () => {
+      qwen.findByType(Button).props.onClick();
+      await Promise.resolve();
+    });
+    await flushPromises();
+    expect(quotaFetch).toHaveBeenCalledWith(file, expect.anything(), expect.anything(), expect.objectContaining({ isCurrent: expect.any(Function) }));
+    expect(readText(card)).toContain('qwen_quota.days_left:344');
+    expect(card.findByProps({ role: 'meter' }).props['aria-valuenow']).toBe(75);
+
+    quotaFetch.mockRejectedValue(new Error('Qwen console session expired — login required'));
+    await act(async () => {
+      card.findByProps({ 'data-qwen-quota-card': 'true' }).findByType(Button).props.onClick();
+      await Promise.resolve();
+    });
+    await flushPromises();
+    const failed = card.findByProps({ 'data-qwen-quota-card': 'true' });
+    expect(readText(failed.findByProps({ role: 'alert' }))).toBe('Qwen console session expired — login required');
+    expect(failed.findAllByProps({ role: 'meter' })).toHaveLength(0);
+    expect(readText(failed)).not.toContain('加购包剩余额度');
+  });
+
+  it.each(['table', 'grid'] as const)('does not show another Qwen credential quota in %s layout', async (layout) => {
+    mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
+    const file: AuthFileItem = { name: 'qwen-replaced.json', provider: 'qwen', auth_index: 'new-qwen' };
+    const previous = { ...file, auth_index: 'old-qwen' };
+    mocks.files = [file];
+    mocks.quotaState.qwenQuota = {
+      [file.name]: QWEN_CONFIG.buildSuccessState({
+        plan: 'Someone else plan', planStatus: null, planStartMs: null, planEndMs: null, daysLeft: 10,
+        observedAtMs: null, windows: [], metrics: [],
+      }, previous),
+    };
+    const renderer = await renderAccountsPage();
+    await flushPromises();
+    const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
+    expect(readText(card)).not.toContain('Someone else plan');
+    expect(card.findByProps({ 'data-qwen-quota-card': 'true' }).findAllByProps({ role: 'meter' })).toHaveLength(0);
   });
 
   it.each(['table', 'grid'] as const)('renders OpenCode Go name, Go plan and used-unit windows in %s layout', async (layout) => {
