@@ -30,6 +30,84 @@ beforeEach(() => {
 });
 
 describe('oauthApi', () => {
+  const requestScope = { apiBase: 'http://cpa.example:8317', managementKey: 'test-key' };
+
+  it.each(['qwen-cliproxyapi', 'opencode-go-cliproxyapi'])(
+    'posts %s credentials to its scoped management URL and returns the created label',
+    async (pluginId) => {
+      const fields = {
+        base_url: 'https://upstream.example/v1',
+        api_key: 'test-secret',
+        name: 'Work',
+      };
+      const response = { ok: true, id: 'credential-1', label: 'Work' };
+      mocks.post.mockResolvedValue(response);
+      await expect(
+        oauthApi.submitPluginCredential(
+          pluginId,
+          `/v0/management/plugins/${pluginId}/credentials`,
+          fields,
+          requestScope
+        )
+      ).resolves.toEqual(response);
+      expect(mocks.post).toHaveBeenCalledWith(`/plugins/${pluginId}/credentials`, fields, {
+        baseURL: 'http://cpa.example:8317/v0/management',
+        headers: { Authorization: 'Bearer test-key' },
+        cpampScopedRequest: true,
+      });
+    }
+  );
+
+  it.each([409, 400, 404, undefined])(
+    'preserves credential failure status %s and plugin message',
+    async (status) => {
+      const error = Object.assign(new Error('plugin error verbatim'), { status });
+      mocks.post.mockRejectedValue(error);
+      await expect(
+        oauthApi.submitPluginCredential(
+          'opencode-go-cliproxyapi',
+          '/v0/management/plugins/opencode-go-cliproxyapi/credentials',
+          { base_url: 'https://upstream.example', api_key: 'test-secret', name: '' },
+          requestScope
+        )
+      ).rejects.toBe(error);
+    }
+  );
+
+  it.each([
+    { ok: false, error: 'invalid credential' },
+    { status: 'error', error: 'plugin failure' },
+    {},
+    { ok: true },
+  ])(
+    'does not mistake an unsuccessful/malformed plan response for credential creation: %j',
+    async (response) => {
+      mocks.post.mockResolvedValue(response);
+      await expect(
+        oauthApi.submitPluginCredential(
+          'qwen-cliproxyapi',
+          '/v0/management/plugins/qwen-cliproxyapi/credentials',
+          {},
+          requestScope
+        )
+      ).rejects.toThrow(
+        'error' in response ? response.error : 'Invalid plugin credential response'
+      );
+    }
+  );
+
+  it('rejects a submit path outside the plugin management namespace before sending secrets', async () => {
+    await expect(
+      oauthApi.submitPluginCredential(
+        'qwen-cliproxyapi',
+        'https://untrusted.example/credentials',
+        { api_key: 'test-secret' },
+        requestScope
+      )
+    ).rejects.toThrow('Invalid plugin credential submit path');
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
   it('marks built-in web UI OAuth starts with is_webui', async () => {
     mocks.get.mockResolvedValue({ url: 'https://auth.example/codex', state: 'state-1' });
 

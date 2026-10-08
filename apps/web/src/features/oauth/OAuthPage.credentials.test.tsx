@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Input } from '@/components/ui/Input';
 import type { PluginListEntry } from '@/types';
 import { OAuthPage } from './OAuthPage';
+import { PlanCredentialsPage } from '@/features/planCredentials/PlanCredentialsPage';
 import {
   getPluginCredentialFormFallback,
   readPluginCredentialForm,
@@ -24,10 +25,13 @@ const { mocks } = vi.hoisted(() => {
     },
   };
 });
-vi.mock('react-i18next', () => ({
-  initReactI18next: { type: '3rdParty', init: () => undefined },
-  useTranslation: () => ({ t: (key: string) => key }),
-}));
+vi.mock('react-i18next', () => {
+  const t = (key: string) => (key === 'plan_credentials.success' ? '凭证添加成功' : key);
+  return {
+    initReactI18next: { type: '3rdParty', init: () => undefined },
+    useTranslation: () => ({ t }),
+  };
+});
 vi.mock('react-router-dom', () => ({
   useLocation: () => ({ search: '', hash: '' }),
   useNavigate: () => vi.fn(),
@@ -104,9 +108,9 @@ const findButton = (renderer: ReactTestRenderer, label: string) => {
   return button;
 };
 let renderer: ReactTestRenderer;
-const render = async () => {
+const render = async (page = <OAuthPage />) => {
   await act(async () => {
-    renderer = create(<OAuthPage />);
+    renderer = create(page);
   });
 };
 const startManual = async () => {
@@ -139,6 +143,8 @@ beforeEach(() => {
   mocks.listFiles.mockResolvedValue({ files: [] });
   mocks.submit.mockResolvedValue(undefined);
   vi.stubGlobal('window', {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     setInterval: vi.fn(() => 1),
     clearInterval: vi.fn(),
     setTimeout: vi.fn(() => 2),
@@ -250,16 +256,19 @@ describe('plugin manual credentials', () => {
     expect(text(renderer.root)).not.toContain('-unique');
   });
 
-  it('shows other plugin cards while a manual metadata probe is pending', async () => {
+  it('shows both plan modules while a manual metadata probe is pending', async () => {
     let resolve!: (response: unknown) => void;
     mocks.startAuth.mockReturnValue(
       new Promise((done) => {
         resolve = done;
       })
     );
-    mocks.plugins = [plugin('qwen-cliproxyapi', 'qwen'), plugin('opencode-go', 'opencode-go')];
-    await render();
-    expect(findButton(renderer, 'auth_login.plugin_oauth_button')).toBeDefined();
+    mocks.plugins = [
+      plugin('qwen-cliproxyapi', 'qwen'),
+      plugin('opencode-go-cliproxyapi', 'opencode-go'),
+    ];
+    await render(<PlanCredentialsPage />);
+    expect(renderer.root.findAllByType('form')).toHaveLength(2);
     expect(findButton(renderer, '添加凭证').props.disabled).toBe(true);
     await act(async () => {
       resolve({ url: 'https://plugin.example/login' });
@@ -273,7 +282,7 @@ describe('plugin manual credentials', () => {
       url: 'https://plugin.example/login',
       state: 'unused-state',
     });
-    await render();
+    await render(<PlanCredentialsPage />);
     expect(findButton(renderer, '添加凭证')).toBeDefined();
     expect(
       renderer.root
@@ -289,16 +298,20 @@ describe('plugin manual credentials', () => {
   it('prefers Qwen login-start metadata over the allowlist fallback', async () => {
     mocks.plugins = [plugin('qwen-cliproxyapi', 'qwen')];
     mocks.startAuth.mockResolvedValue({
-      metadata: { ...metadata, submit_path: '/v0/management/plugins/qwen-cliproxyapi/alternate' },
+      metadata: {
+        ...metadata,
+        fields: metadata.fields.slice(0, 3),
+        submit_path: '/v0/management/plugins/qwen-cliproxyapi/alternate',
+      },
     });
-    await render();
+    await render(<PlanCredentialsPage />);
     expect(findButton(renderer, '保存凭证')).toBeDefined();
   });
 
   it('retains fallback if an older host rejects the metadata probe', async () => {
     mocks.plugins = [plugin('qwen-cliproxyapi', 'qwen')];
     mocks.startAuth.mockRejectedValue(new Error('unsupported'));
-    await render();
+    await render(<PlanCredentialsPage />);
     expect(findButton(renderer, '添加凭证')).toBeDefined();
   });
 

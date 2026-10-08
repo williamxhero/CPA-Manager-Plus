@@ -88,6 +88,7 @@ import {
   listPendingAccountDirectReauths,
 } from './model/accountDirectReauth';
 import { useUsageHeaderSnapshotStore } from '@/stores/useUsageHeaderSnapshotStore';
+import { useAccountCredentialMutationRevisionStore } from '@/stores/useAccountCredentialMutationRevisionStore';
 import { publishAccountCredentialMutationRevision } from '@/stores';
 import { AccountsPage } from './AccountsPage';
 
@@ -1315,6 +1316,7 @@ describe('AccountsPage replacement flows', () => {
   beforeEach(() => {
     clearAccountCredentialEvidenceBoundaryStateCache();
     clearAccountCredentialMutationMarkersForTests();
+    useAccountCredentialMutationRevisionStore.getState().clearForTests();
     clearPendingAccountDirectReauthsForTests();
     if (typeof window !== 'undefined') {
       window.localStorage.clear();
@@ -16147,6 +16149,39 @@ describe('AccountsPage replacement flows', () => {
 
     expect(treeText(renderer)).toContain('req-second');
     expect(treeText(renderer)).not.toContain('req-first');
+  });
+
+  it('synchronizes a credential mutation published after Accounts loaded the old list', async () => {
+    const connectionFingerprint = 'http://cpa-a.local:8317:manager-key';
+    await renderAccountsPage();
+    await flushPromises();
+    expect(mocks.loadFiles).toHaveBeenCalledTimes(1);
+
+    const createdFile = makeCodexFile('created.json', 'auth-created', 'created@example.com');
+    mocks.loadFiles.mockResolvedValueOnce([...mocks.files, createdFile]);
+    recordAccountCredentialMutationMarker({
+      connectionFingerprint,
+      provider: 'codex',
+      requireObservedMutation: true,
+      baseline: createAccountCredentialMutationBaseline(mocks.files, 'codex'),
+    });
+
+    await act(async () => {
+      useAccountCredentialMutationRevisionStore.getState().publish({
+        connectionFingerprint,
+        provider: 'codex',
+        kind: 'credential',
+      });
+      await Promise.resolve();
+    });
+    await flushPromises();
+
+    expect(mocks.loadFiles).toHaveBeenCalledTimes(2);
+    expect(mocks.getActiveQuotaCooldowns).toHaveBeenCalledTimes(1);
+    expect(mocks.listAccountActionCandidates).toHaveBeenCalledTimes(1);
+    expect(listAccountCredentialMutationMarkers(connectionFingerprint)).toEqual([]);
+    expect(mocks.getHeaderSnapshots).not.toHaveBeenCalled();
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
   });
 
   it('consumes a scoped OAuth mutation marker and suppresses stale credential status', async () => {

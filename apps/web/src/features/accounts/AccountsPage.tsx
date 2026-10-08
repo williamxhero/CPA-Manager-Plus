@@ -85,6 +85,7 @@ import {
   useCredentialInspectionSnapshot,
 } from '@/features/accounts/hooks/useCredentialInspectionSnapshot';
 import { useAccountsWorkspaceRefresh } from '@/features/accounts/hooks/useAccountsWorkspaceRefresh';
+import { useAccountCredentialMutationSubscription } from '@/features/accounts/hooks/useAccountCredentialMutationSubscription';
 import { useHeaderSnapshotsLoader } from '@/features/monitoring/hooks/useHeaderSnapshotsLoader';
 import { PaginationControls } from '@/features/monitoring/components/MonitoringShared';
 import { CredentialHealthInspectionWorkspace } from '@/features/monitoring/components/CredentialHealthInspectionWorkspace';
@@ -2392,6 +2393,11 @@ export function AccountsPage() {
     if (!connectionFingerprint || loading || error) return;
     void synchronizePendingAccountDirectReauthsRef.current({ reload: false });
   }, [connectionFingerprint, error, files, loading]);
+
+  useAccountCredentialMutationSubscription(
+    connectionFingerprint,
+    synchronizeExternalCredentialMutationMarkers
+  );
 
   useEffect(() => {
     if (!connectionFingerprint || loading || error) return;

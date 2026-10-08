@@ -42,7 +42,7 @@ import {
 } from '@/stores';
 import { pluginsApi } from '@/services/api';
 import {
-  collectPluginResourceEntries,
+  collectPluginResourceNavEntries,
   isPluginManagementNavVisible,
   isPluginResourceNavVisible,
   PLUGIN_RESOURCES_REFRESH_EVENT,
@@ -484,7 +484,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
           supportsPlugin,
           pluginsEnabled: plugins.pluginsEnabled,
         })
-          ? collectPluginResourceEntries(plugins.plugins)
+          ? collectPluginResourceNavEntries(plugins.plugins)
           : []
       );
     } catch {
@@ -601,6 +601,12 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
           'nav.accounts',
           t('nav.accounts', { defaultValue: t('accounts.title') })
         ),
+        icon: sidebarIcons.authFiles,
+      },
+      {
+        path: '/plan-credentials',
+        label: t('nav.plan_credentials'),
+        shortLabel: navShortLabel('nav.plan_credentials', t('nav.plan_credentials')),
         icon: sidebarIcons.authFiles,
       },
       {

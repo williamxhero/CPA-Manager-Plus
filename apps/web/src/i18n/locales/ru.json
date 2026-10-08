@@ -253,6 +253,8 @@
     "ai_providers": "Поставщики AI",
     "ai_providers_short": "AI",
     "accounts": "Управление учётными данными",
+    "plan_credentials": "Добавить учётные данные плана",
+    "plan_credentials_short": "Данные плана",
     "oauth": "OAuth вход",
     "oauth_short": "OAuth",
     "plugins": "Управление плагинами",
@@ -273,6 +275,16 @@
     "system_info_short": "Система",
     "usage_maintenance": "Обслуживание использования",
     "usage_maintenance_short": "Обслуживание"
+  },
+  "plan_credentials": {
+    "title": "Добавить учётные данные плана",
+    "loading": "Загрузка плагинов плана…",
+    "empty": "Нет доступных плагинов для учётных данных плана",
+    "required_field": "Введите {{field}}",
+    "invalid_base_url": "Введите корректный Base URL",
+    "success": "Учётные данные успешно добавлены",
+    "failed": "Не удалось добавить учётные данные",
+    "duplicate": "Учётные данные уже существуют"
   },
   "usage_maintenance": {
     "archive_management": "Управление архивами",

@@ -249,6 +249,8 @@
     "ai_providers": "AI Providers",
     "ai_providers_short": "AI Providers",
     "accounts": "Credential Management",
+    "plan_credentials": "Add plan credentials",
+    "plan_credentials_short": "Plan credentials",
     "oauth": "OAuth Login",
     "oauth_short": "OAuth",
     "plugins": "Plugins",
@@ -269,6 +271,16 @@
     "system_info_short": "System",
     "usage_maintenance": "Usage Maintenance",
     "usage_maintenance_short": "Maintenance"
+  },
+  "plan_credentials": {
+    "title": "Add plan credentials",
+    "loading": "Loading plan plugins…",
+    "empty": "No plan credential plugins are available",
+    "required_field": "Please enter {{field}}",
+    "invalid_base_url": "Please enter a valid Base URL",
+    "success": "Credential added successfully",
+    "failed": "Failed to add credential",
+    "duplicate": "Credential already exists"
   },
   "usage_maintenance": {
     "archive_management": "Archive management",

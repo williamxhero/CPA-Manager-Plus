@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { oauthApi } from '@/services/api/oauth';
 import type { ApiClientRequestScope } from '@/services/api/client';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import type { PluginCredentialFormDefinition } from './pluginCredentialMetadata';
+import { isPlanCredentialPlugin } from '@/features/plugins/planPlugins';
 import styles from './OAuthPage.module.scss';
 
 interface PluginCredentialFormProps {
@@ -22,10 +24,12 @@ export function PluginCredentialForm({
   onCreated,
   loadingMetadata = false,
 }: PluginCredentialFormProps) {
+  const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [createdLabel, setCreatedLabel] = useState('');
   const mounted = useRef(false);
   const inFlight = useRef(false);
 
@@ -42,34 +46,69 @@ export function PluginCredentialForm({
     const payload = Object.fromEntries(
       definition.fields.map((field) => [field.name, values[field.name] || ''])
     );
-    if (definition.fields.some((field) => field.required && !payload[field.name].trim())) return;
-    const isCurrent = () => {
+    setError('');
+    setCreatedLabel('');
+    const isPlan = isPlanCredentialPlugin(pluginId);
+    const missing = definition.fields.find(
+      (field) =>
+        (field.required || (isPlan && (field.name === 'base_url' || field.name === 'api_key'))) &&
+        !payload[field.name].trim()
+    );
+    if (missing) {
+      setError(t('plan_credentials.required_field', { field: missing.label }));
+      return;
+    }
+    if (isPlan && Object.prototype.hasOwnProperty.call(payload, 'base_url')) {
+      try {
+        const url = new URL(payload.base_url);
+        if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error();
+      } catch {
+        setError(t('plan_credentials.invalid_base_url'));
+        return;
+      }
+    }
+    const isConnectionCurrent = () => {
       const auth = useAuthStore.getState();
       return (
-        mounted.current &&
-        auth.apiBase === requestScope.apiBase &&
-        auth.managementKey === requestScope.managementKey
+        auth.apiBase === requestScope.apiBase && auth.managementKey === requestScope.managementKey
       );
     };
+    const isCurrent = () => mounted.current && isConnectionCurrent();
+    if (!isCurrent()) return;
     inFlight.current = true;
     setSubmitting(true);
     setError('');
     try {
-      await oauthApi.submitPluginCredential(pluginId, definition.submitPath, payload, requestScope);
-      if (!isCurrent()) return;
-      setValues((previous) =>
-        Object.fromEntries(
-          definition.fields.map((field) => [
-            field.name,
-            field.type === 'password' ? '' : previous[field.name] || '',
-          ])
-        )
+      const response = await oauthApi.submitPluginCredential(
+        pluginId,
+        definition.submitPath,
+        payload,
+        requestScope
       );
-      onCreated();
-      showNotification('凭证添加成功', 'success');
+      if (!isConnectionCurrent()) return;
+      // Credential creation outlives this page; synchronize an already-open accounts list too.
+      if (isPlan) onCreated();
+      if (!mounted.current) return;
+      setValues((previous) =>
+        isPlan
+          ? {}
+          : Object.fromEntries(
+              definition.fields.map((field) => [
+                field.name,
+                field.type === 'password' ? '' : previous[field.name] || '',
+              ])
+            )
+      );
+      setCreatedLabel(response?.label || '');
+      if (!isPlan) onCreated();
+      showNotification(t('plan_credentials.success', { defaultValue: '凭证添加成功' }), 'success');
     } catch (err: unknown) {
       if (!isCurrent()) return;
-      let message = err instanceof Error ? err.message : '添加凭证失败';
+      let message = err instanceof Error ? err.message : t('plan_credentials.failed');
+      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+        const duplicate = t('plan_credentials.duplicate');
+        message = message === duplicate ? duplicate : `${duplicate}: ${message}`;
+      }
       // A plugin error must not accidentally echo submitted secrets back into the panel/toast.
       const secrets = definition.fields
         .filter((field) => field.type === 'password')
@@ -88,7 +127,7 @@ export function PluginCredentialForm({
   };
 
   return (
-    <form className={styles.cardContent} onSubmit={submit} autoComplete="off">
+    <form className={styles.cardContent} onSubmit={submit} autoComplete="off" noValidate>
       {definition.fields.map((field) => (
         <Input
           key={field.name}
@@ -110,6 +149,11 @@ export function PluginCredentialForm({
           {definition.submitLabel}
         </Button>
       </div>
+      {createdLabel && (
+        <div className="status-badge success" role="status">
+          {t('plan_credentials.success')}: {createdLabel}
+        </div>
+      )}
       {error && (
         <div className="status-badge error" role="alert">
           {error}

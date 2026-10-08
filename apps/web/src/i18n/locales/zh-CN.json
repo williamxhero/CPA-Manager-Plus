@@ -247,6 +247,8 @@
     "ai_providers": "AI 提供商",
     "accounts": "凭证管理",
     "ai_providers_short": "AI",
+    "plan_credentials": "添加计划凭证",
+    "plan_credentials_short": "计划凭证",
     "oauth": "OAuth 登录",
     "oauth_short": "OAuth",
     "plugins": "插件管理",
@@ -267,6 +269,16 @@
     "system_info_short": "系统",
     "usage_maintenance": "用量维护",
     "usage_maintenance_short": "维护"
+  },
+  "plan_credentials": {
+    "title": "添加计划凭证",
+    "loading": "正在加载计划插件…",
+    "empty": "暂无可用的计划凭证插件",
+    "required_field": "请填写{{field}}",
+    "invalid_base_url": "请输入有效的 Base URL",
+    "success": "凭证添加成功",
+    "failed": "凭证添加失败",
+    "duplicate": "凭证已存在"
   },
   "usage_maintenance": {
     "archive_management": "归档管理",

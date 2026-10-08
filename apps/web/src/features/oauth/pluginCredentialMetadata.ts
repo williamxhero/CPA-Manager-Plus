@@ -59,21 +59,31 @@ export const readPluginCredentialForm = (
 // Older hosts omit login-start metadata. Keep this compatibility list explicit and plugin-specific.
 export const getPluginCredentialFormFallback = (
   pluginId: string
-): PluginCredentialFormDefinition | undefined =>
-  pluginId === 'qwen-cliproxyapi'
-    ? {
-        submitPath: '/v0/management/plugins/qwen-cliproxyapi/credentials',
-        submitLabel: '添加凭证',
-        fields: [
-          {
-            name: 'base_url',
-            label: 'Base URL',
-            placeholder: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
-            type: 'text',
-            required: true,
-          },
-          { name: 'api_key', label: 'API Key', type: 'password', required: true },
-          { name: 'name', label: '凭证名称', type: 'text', required: false },
-        ],
-      }
-    : undefined;
+): PluginCredentialFormDefinition | undefined => {
+  const baseURLs: Record<string, string> = {
+    'qwen-cliproxyapi': 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    'opencode-go-cliproxyapi': 'https://opencode.ai/zen/go/v1',
+  };
+  if (!Object.prototype.hasOwnProperty.call(baseURLs, pluginId)) return undefined;
+  return {
+    submitPath: `/v0/management/plugins/${pluginId}/credentials`,
+    submitLabel: '添加凭证',
+    fields: [
+      {
+        name: 'base_url',
+        label: 'Base URL',
+        placeholder: baseURLs[pluginId],
+        type: 'text',
+        required: true,
+      },
+      { name: 'api_key', label: 'API Key', type: 'password', required: true },
+      {
+        name: 'name',
+        label: '别名 (Alias)',
+        placeholder: '留空则显示脱敏 API Key',
+        type: 'text',
+        required: false,
+      },
+    ],
+  };
+};

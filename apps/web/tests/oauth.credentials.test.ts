@@ -22,7 +22,7 @@ let requests: Array<{
 
 beforeEach(async () => {
   requests = [];
-  response = { status: 'ok' };
+  response = { ok: true, id: 'fixture-credential-id', label: 'Work' };
   responseStatus = 200;
   server = createServer((request, reply) => {
     let body = '';
@@ -55,27 +55,31 @@ afterEach(async () => {
 });
 
 describe('plugin credential management HTTP contract', () => {
-  it('POSTs JSON fields with management authorization to the exact plugin route, not a query string', async () => {
-    await oauthApi.submitPluginCredential(
-      'qwen-cliproxyapi',
-      '/v0/management/plugins/qwen-cliproxyapi/credentials',
-      { base_url: 'https://api.example/v1', api_key: 'fixture-secret', name: 'Work' },
-      scope
-    );
-    expect(requests).toEqual([
-      {
-        url: '/v0/management/plugins/qwen-cliproxyapi/credentials',
-        method: 'POST',
-        authorization: 'Bearer fixture-manager-key',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          base_url: 'https://api.example/v1',
-          api_key: 'fixture-secret',
-          name: 'Work',
-        }),
-      },
-    ]);
-  });
+  it.each(['qwen-cliproxyapi', 'opencode-go-cliproxyapi'])(
+    'POSTs %s JSON fields with management authorization to the exact plugin route, not a query string',
+    async (pluginId) => {
+      const result = await oauthApi.submitPluginCredential(
+        pluginId,
+        `/v0/management/plugins/${pluginId}/credentials`,
+        { base_url: 'https://api.example/v1', api_key: 'fixture-secret', name: 'Work' },
+        scope
+      );
+      expect(result).toEqual(response);
+      expect(requests).toEqual([
+        {
+          url: `/v0/management/plugins/${pluginId}/credentials`,
+          method: 'POST',
+          authorization: 'Bearer fixture-manager-key',
+          contentType: 'application/json',
+          body: JSON.stringify({
+            base_url: 'https://api.example/v1',
+            api_key: 'fixture-secret',
+            name: 'Work',
+          }),
+        },
+      ]);
+    }
+  );
 
   it('preserves login-start metadata returned by an isolated HTTP fixture', async () => {
     response = {
