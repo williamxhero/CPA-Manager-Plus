@@ -187,7 +187,6 @@ import {
   buildAccountQuotaWindowDefinitions,
   type AccountQuotaWindowDefinition,
 } from '@/features/accounts/model/accountQuotaWindowDefinitions';
-import { QwenQuotaCard } from './components/QwenQuotaCard';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import { statusBarDataFromRecentRequests } from '@/utils/recentRequests';
 import {
@@ -8849,14 +8848,6 @@ export function AccountsPage() {
     };
   };
 
-  const renderQwenQuotaCard = (row: AccountRow) => (
-    <QwenQuotaCard
-      quota={getScopedQuotaState(QWEN_CONFIG, qwenQuota ?? {}, row.raw)}
-      refreshing={isManualQuotaRefreshing(row)}
-      disabled={disableControls || quotaRefreshing || row.runtimeOnly}
-      onRefresh={() => void refreshAccountQuota(row, 'summary')}
-    />
-  );
 
   const renderAccountHistory = (
     row: AccountRow,
@@ -9429,7 +9420,7 @@ export function AccountsPage() {
                           }
                     }
                   >
-                    {row.provider === QWEN_CONFIG.type ? renderQwenQuotaCard(row) : ctx.mainListWindows.length > 0 ? (
+                    {ctx.mainListWindows.length > 0 ? (
                       <div className={styles.accountGridCardQuotaList}>
                         {row.provider === ANTIGRAVITY_CONFIG.type
                           ? quotaWindowGroups.map((group) => (
@@ -9675,9 +9666,6 @@ export function AccountsPage() {
                   {renderAccountHistory(row, ctx)}
 
                   {(() => {
-                    if (row.provider === QWEN_CONFIG.type) {
-                      return <div className={styles.accountCardBusiness}>{renderQwenQuotaCard(row)}</div>;
-                    }
                     const resetCreditsAriaSuffix =
                       ctx.hasCodexResetCredits && ctx.codexResetCreditsCount !== null
                         ? `. ${t('accounts.detail_quota_reset_records', { defaultValue: '重置记录' })}: ${ctx.codexResetCreditsCount}`

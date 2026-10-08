@@ -897,17 +897,30 @@ const buildQwenQuotaDisplayWindows = (
         ? clampDisplayPercent(window.usedPercent)
         : remainingPercent === null ? null : clampDisplayPercent(100 - remainingPercent);
     const hasReset = isValidQuotaResetAtMs(window.resetAtMs);
+    // Mirror the OpenCode Go mapping so Qwen windows qualify as standard list windows
+    // (a bare reset countdown would otherwise be filtered out of the shared list).
+    const normalizedId = window.id.trim().toLowerCase().replace(/_/g, '-');
+    const kind: AccountQuotaWindowKind | undefined =
+      ['1month', 'monthly', 'month'].includes(normalizedId)
+        ? 'monthly'
+        : ['5h', '5hour', '5hours', 'five-hour', 'rolling'].includes(normalizedId)
+          ? 'five_hour'
+          : ['1week', '7d', 'weekly', 'week'].includes(normalizedId)
+            ? 'weekly'
+            : undefined;
+    const limitWindowSeconds =
+      kind === 'five_hour' ? 5 * 60 * 60 : kind === 'weekly' ? 7 * 24 * 60 * 60 : null;
     return buildAccountQuotaDisplayWindow({
       key: `qwen:${window.id}`,
       label: options.translateQuotaWindowLabel(window.label),
+      kind,
       remainingPercent,
       usedPercent,
       resetLabel: hasReset ? formatQuotaResetTime(window.resetAtMs) : '-',
       resetAtMs: window.resetAtMs,
       resetAccuracy: hasReset ? 'exact' : 'unknown',
-      // A reset countdown does not establish the full length/start of a quota cycle.
-      limitWindowSeconds: null,
-      windowMode: 'unknown',
+      limitWindowSeconds,
+      windowMode: kind === 'monthly' ? 'calendar' : limitWindowSeconds ? 'fixed' : 'unknown',
       source: 'qwen',
       observedAtMs: quota.observedAtMs ?? null,
       nowMs: options.nowMs,

@@ -13107,65 +13107,118 @@ describe('AccountsPage replacement flows', () => {
     expect(mocks.getAccountWindowUsage).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['table', 'grid'] as const)('renders Qwen plan, windows, metrics and refreshes in %s layout', async (layout) => {
-    mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
-    const file: AuthFileItem = {
-      name: 'qwen.json', label: 'Qwen', provider: 'qwen', auth_index: 'qwen-test',
-      supports_quota: true, quota_provider: 'qwen',
-    };
-    mocks.files = [file];
-    const data = parseQwenQuota({ cards: [{
-      auth_index: 'qwen-test', plan: 'Token Plan 个人版 Standard', planStatus: '生效中',
-      planEnd: '2027-09-18T00:00:00+08:00', daysLeft: 345,
-      observedAt: '2026-10-08T19:15:43+08:00',
-      windows: [{ window: '1month', usedPercent: 100, remainingPercent: 0,
-        resetTime: '2026-10-18T00:00:00+08:00', resetsInDays: 10 }],
-      metrics: [{ key: 'addon_remaining_credits', label: '加购包剩余额度', value: 0, unit: 'credits', format: 'number' }],
-      error: null,
-    }] }, mocks.t as TFunction);
-    mocks.quotaState.qwenQuota = {
-      [QWEN_CONFIG.getStoreKey!(file)]: QWEN_CONFIG.buildSuccessState(data, file),
-    };
-    const quotaFetch = vi.spyOn(QWEN_CONFIG, 'fetchQuota').mockResolvedValue({
-      ...data, daysLeft: 344,
-      windows: data.windows.map((window) => ({ ...window, usedPercent: 25, remainingPercent: 75 })),
-    });
-    mocks.quotaState.setQwenQuota.mockImplementation((updater) => {
-      mocks.quotaState.qwenQuota = typeof updater === 'function'
-        ? updater(mocks.quotaState.qwenQuota) : updater;
-    });
-    const renderer = await renderAccountsPage();
-    await flushPromises();
-    const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
-    const qwen = card.findByProps({ 'data-qwen-quota-card': 'true' });
-    expect(readText(qwen)).toContain('Token Plan 个人版 Standard');
-    expect(readText(qwen)).toContain('生效中');
-    expect(readText(qwen)).toContain('qwen_quota.expires_at');
-    expect(readText(qwen)).toContain('qwen_quota.days_left:345');
-    expect(readText(qwen)).toContain('qwen_quota.resets_in_days:10');
-    expect(readText(qwen)).toContain('加购包剩余额度: 0 credits');
-    expect(readText(qwen)).toContain('qwen_quota.observed_at');
-    expect(qwen.findByProps({ role: 'meter' }).props['aria-valuenow']).toBe(0);
-    await act(async () => {
-      qwen.findByType(Button).props.onClick();
-      await Promise.resolve();
-    });
-    await flushPromises();
-    expect(quotaFetch).toHaveBeenCalledWith(file, expect.anything(), expect.anything(), expect.objectContaining({ isCurrent: expect.any(Function) }));
-    expect(readText(card)).toContain('qwen_quota.days_left:344');
-    expect(card.findByProps({ role: 'meter' }).props['aria-valuenow']).toBe(75);
+  it.each(['table', 'grid'] as const)(
+    'renders the Qwen credential through the shared quota list in %s layout',
+    async (layout) => {
+      mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-08T12:00:00Z'));
+      mocks.language = 'zh-CN';
+      const file: AuthFileItem = {
+        name: 'qwen.json',
+        label: 'Qwen',
+        provider: 'qwen',
+        auth_index: 'qwen-test',
+        supports_quota: true,
+        quota_provider: 'qwen',
+      };
+      mocks.files = [file];
+      const data = parseQwenQuota(
+        {
+          cards: [
+            {
+              auth_index: 'qwen-test',
+              plan: 'Token Plan 个人版 Standard',
+              planStatus: '生效中',
+              planEnd: '2027-09-18T00:00:00+08:00',
+              daysLeft: 345,
+              observedAt: '2026-10-08T19:15:43+08:00',
+              windows: [
+                {
+                  window: '1month',
+                  usedPercent: 100,
+                  remainingPercent: 0,
+                  resetTime: '2026-10-18T00:00:00+08:00',
+                  resetsInDays: 10,
+                },
+              ],
+              metrics: [
+                {
+                  key: 'addon_remaining_credits',
+                  label: '加购包剩余额度',
+                  value: 0,
+                  unit: 'credits',
+                  format: 'number',
+                },
+              ],
+              error: null,
+            },
+          ],
+        },
+        mocks.t as TFunction
+      );
+      mocks.quotaState.qwenQuota = {
+        [QWEN_CONFIG.getStoreKey!(file)]: QWEN_CONFIG.buildSuccessState(data, file),
+      };
+      const quotaFetch = vi.spyOn(QWEN_CONFIG, 'fetchQuota').mockResolvedValue({
+        ...data,
+        windows: data.windows.map((window) => ({
+          ...window,
+          usedPercent: 25,
+          remainingPercent: 75,
+        })),
+      });
+      mocks.quotaState.setQwenQuota.mockImplementation((updater) => {
+        mocks.quotaState.qwenQuota =
+          typeof updater === 'function' ? updater(mocks.quotaState.qwenQuota) : updater;
+      });
+      const renderer = await renderAccountsPage();
+      await flushPromises();
+      const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
 
-    quotaFetch.mockRejectedValue(new Error('Qwen console session expired — login required'));
-    await act(async () => {
-      card.findByProps({ 'data-qwen-quota-card': 'true' }).findByType(Button).props.onClick();
-      await Promise.resolve();
-    });
-    await flushPromises();
-    const failed = card.findByProps({ 'data-qwen-quota-card': 'true' });
-    expect(readText(failed.findByProps({ role: 'alert' }))).toBe('Qwen console session expired — login required');
-    expect(failed.findAllByProps({ role: 'meter' })).toHaveLength(0);
-    expect(readText(failed)).not.toContain('加购包剩余额度');
-  });
+      // Qwen must not render a card of its own: it uses the same shared window list as
+      // every other provider, so content and styling stay identical.
+      expect(card.findAllByProps({ 'data-qwen-quota-card': 'true' })).toHaveLength(0);
+      const windows = card.findAll(
+        (node) => typeof node.props['data-account-quota-window'] === 'string'
+      );
+      expect(windows.map((window) => window.props['data-account-quota-window'])).toEqual([
+        'qwen:1month',
+      ]);
+      const text = readText(card);
+      // Same usage wording and unit fraction as every other provider
+      // (OpenCode Go renders 3.1/31 for the same calendar-month window).
+      expect(text).toContain('已用');
+      expect(text).toMatch(/31\.0\/31/);
+      // The 套餐 cell shows the tier alone - never the whole product name.
+      expect(text).toContain('个人版 Standard');
+      expect(text).not.toContain('Token Plan 个人版 Standard');
+      expect(text).toContain('accounts.list_plan_remaining_days:345');
+
+      await act(async () => {
+        findButtonByText(renderer, 'accounts.refresh_quota').props.onClick();
+        await Promise.resolve();
+      });
+      await flushPromises();
+      expect(quotaFetch).toHaveBeenCalledWith(
+        file,
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ isCurrent: expect.any(Function) })
+      );
+
+      quotaFetch.mockRejectedValue(new Error('Qwen console session expired - login required'));
+      await act(async () => {
+        findButtonByText(renderer, 'accounts.refresh_quota').props.onClick();
+        await Promise.resolve();
+      });
+      await flushPromises();
+      expect(
+        card.findAll((node) => typeof node.props['data-account-quota-window'] === 'string')
+      ).toHaveLength(0);
+      expect(card.findByProps({ 'data-account-quota-empty': 'true' })).toBeTruthy();
+    }
+  );
 
   it.each(['table', 'grid'] as const)('does not show another Qwen credential quota in %s layout', async (layout) => {
     mocks.location = { pathname: '/accounts', search: `?layout=${layout}` };
@@ -13182,7 +13235,9 @@ describe('AccountsPage replacement flows', () => {
     await flushPromises();
     const card = findAccountCardByKey(renderer, getAuthFileSelectionKey(file));
     expect(readText(card)).not.toContain('Someone else plan');
-    expect(card.findByProps({ 'data-qwen-quota-card': 'true' }).findAllByProps({ role: 'meter' })).toHaveLength(0);
+    expect(
+      card.findAll((node) => typeof node.props['data-account-quota-window'] === 'string')
+    ).toHaveLength(0);
   });
 
   it.each(['table', 'grid'] as const)('renders OpenCode Go name, Go plan and used-unit windows in %s layout', async (layout) => {

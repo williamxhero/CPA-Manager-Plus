@@ -97,6 +97,17 @@ export const resolveCodexSubscriptionUntilMs = (
   };
 };
 
+const QWEN_PLAN_PRODUCT_PREFIX = /^\s*token\s*plan\s*[-–—:：]?\s*/i;
+
+// The upstream plan string is the product plus the tier ("Token Plan 个人版 Standard").
+// The 套餐 cell shows the tier alone on one line; the full name stays in the tooltip.
+const qwenPlanTierLabel = (plan: string | null | undefined): string | null => {
+  const value = normalizeStringValue(plan);
+  if (!value) return null;
+  const tier = value.replace(QWEN_PLAN_PRODUCT_PREFIX, '').trim();
+  return tier || value;
+};
+
 export const buildAccountSubscriptionPresentation = (input: {
   row: Pick<AccountRow, 'provider' | 'planType' | 'raw'>;
   codexQuota?: CodexQuotaState | null;
@@ -111,7 +122,7 @@ export const buildAccountSubscriptionPresentation = (input: {
     row.provider === 'qwen' && input.qwenQuota?.status === 'error'
       ? null
       : normalizeStringValue(
-          (row.provider === 'qwen' ? qwenQuota?.plan : codexQuota?.planType) ??
+          (row.provider === 'qwen' ? qwenPlanTierLabel(qwenQuota?.plan) : codexQuota?.planType) ??
             row.planType ?? resolveAuthFilePlanType(row.raw)
         );
   const planPresentation = getPlanPresentation({
@@ -119,6 +130,11 @@ export const buildAccountSubscriptionPresentation = (input: {
     planType: effectivePlanType,
     t,
   });
+  // The 套餐 cell shows the tier alone (个人版 Standard); hovering still reveals the
+  // full upstream plan name (Token Plan 个人版 Standard).
+  if (planPresentation && row.provider === 'qwen' && qwenQuota?.plan) {
+    planPresentation.fullLabel = qwenQuota.plan;
+  }
 
   const isPaidCodex =
     row.provider === 'codex' &&
