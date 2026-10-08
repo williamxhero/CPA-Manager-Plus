@@ -8,13 +8,12 @@ import {
   type PluginCredentialFormDefinition,
 } from '@/features/oauth/pluginCredentialMetadata';
 import { resolvePluginOAuthProviderId } from '@/features/oauth/oauthProviderHelpers';
-import { getAuthFileIcon } from '@/features/authFiles/constants';
 import { isPlanCredentialPlugin, PLAN_PLUGIN_TITLES } from '@/features/plugins/planPlugins';
 import { PLUGIN_RESOURCES_REFRESH_EVENT } from '@/features/plugins/pluginResources';
 import { createCodexInspectionConnectionFingerprint } from '@/features/monitoring/codexInspection';
 import { recordAccountCredentialMutationMarker } from '@/features/accounts/model/accountCredentialMutationMarker';
 import { oauthApi, pluginsApi } from '@/services/api';
-import { publishAccountCredentialMutationRevision, useAuthStore, useThemeStore } from '@/stores';
+import { publishAccountCredentialMutationRevision, useAuthStore } from '@/stores';
 import type { PluginListEntry } from '@/types';
 import styles from '@/features/oauth/OAuthPage.module.scss';
 
@@ -26,7 +25,6 @@ interface PlanModule {
 
 export function PlanCredentialsPage() {
   const { t } = useTranslation();
-  const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const apiBase = useAuthStore((state) => state.apiBase);
   const managementKey = useAuthStore((state) => state.managementKey);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
@@ -119,18 +117,6 @@ export function PlanCredentialsPage() {
     };
   }, [apiBase, available, managementKey, requestScope, revision, t]);
 
-  const renderModuleTitle = (plugin: PluginListEntry) => {
-    const title = PLAN_PLUGIN_TITLES[plugin.id];
-    const icon = getAuthFileIcon(resolvePluginOAuthProviderId(plugin), resolvedTheme);
-    if (!icon) return title;
-    return (
-      <span className={styles.cardTitle}>
-        <img src={icon} alt="" aria-hidden="true" className={styles.cardTitleIcon} />
-        {title}
-      </span>
-    );
-  };
-
   return (
     <div className={styles.container}>
       <div className={styles.content}>
@@ -147,7 +133,7 @@ export function PlanCredentialsPage() {
             key={`${connectionFingerprint}:${plugin.id}`}
             aria-label={PLAN_PLUGIN_TITLES[plugin.id]}
           >
-            <Card title={renderModuleTitle(plugin)}>
+            <Card title={PLAN_PLUGIN_TITLES[plugin.id]}>
               <PluginCredentialForm
                 pluginId={plugin.id}
                 definition={definition}

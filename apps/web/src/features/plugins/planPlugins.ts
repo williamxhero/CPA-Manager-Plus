@@ -1,6 +1,6 @@
 export const PLAN_PLUGIN_TITLES: Readonly<Record<string, string>> = {
-  'qwen-cliproxyapi': 'Qwen Token Plan',
-  'opencode-go-cliproxyapi': 'OpenCode Go',
+  'qwen-cliproxyapi': 'Qwen',
+  'opencode-go-cliproxyapi': 'OpenCode',
 };
 
 export const isPlanCredentialPlugin = (pluginId: string): boolean =>
