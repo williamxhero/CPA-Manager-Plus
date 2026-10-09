@@ -89,6 +89,7 @@ import { useAccountCredentialMutationSubscription } from '@/features/accounts/ho
 import { useHeaderSnapshotsLoader } from '@/features/monitoring/hooks/useHeaderSnapshotsLoader';
 import { PaginationControls } from '@/features/monitoring/components/MonitoringShared';
 import { CredentialHealthInspectionWorkspace } from '@/features/monitoring/components/CredentialHealthInspectionWorkspace';
+import { CredentialAutoStartStopToggle } from '@/features/accounts/components/CredentialAutoStartStopToggle';
 import { AuthJsonPasteModal } from '@/features/authFiles/components/AuthJsonPasteModal';
 import { OAuthExcludedCard } from '@/features/authFiles/components/OAuthExcludedCard';
 import {
@@ -8161,6 +8162,10 @@ export function AccountsPage() {
           </small>
         </div>
         <div className={styles.batchActions}>
+          <CredentialAutoStartStopToggle
+            managerServiceBase={featureAvailability.managerServiceBase ?? ''}
+            managementKey={managementKey}
+          />
           {!isSelectionMode && !hasSelection ? (
             <Button
               variant="secondary"
