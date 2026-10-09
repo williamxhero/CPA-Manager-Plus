@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "spec": "SPEC5-A",
+  "contractDoc": "docs/providers-layout-contract.md",
+  "boundaryDoc": "providers/README.md",
+  "attributionFile": "NOTICE",
+  "description": "CPAMP 单仓 providers 布局、许可证与导入边界契约（SPEC5-A）。只定义契约与排除规则，不导入插件源码。",
+  "globalForbidden": {
+    "binaryExtensions": [
+      ".dll",
+      ".exe",
+      ".so",
+      ".dylib",
+      ".pdb",
+      ".lib",
+      ".o",
+      ".a",
+      ".obj",
+      ".bin",
+      ".class",
+      ".jar",
+      ".node",
+      ".wasm",
+      ".msi",
+      ".zip",
+      ".7z",
+      ".tar",
+      ".gz"
+    ],
+    "pathGlobs": [
+      "**/.git/**",
+      "**/node_modules/**",
+      "**/.cache/**",
+      "**/__pycache__/**",
+      "**/.pytest_cache/**",
+      "**/dist/**",
+      "**/go-build/**",
+      "**/.DS_Store",
+      "**/Thumbs.db"
+    ],
+    "contentPatterns": [
+      { "id": "private-key-block", "pattern": "-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----", "flags": "" },
+      { "id": "openai-key", "pattern": "\\bsk-[A-Za-z0-9_-]{20,}\\b", "flags": "" },
+      { "id": "anthropic-key", "pattern": "\\bsk-ant-[A-Za-z0-9_-]{20,}\\b", "flags": "" },
+      { "id": "aws-access-key-id", "pattern": "\\bAKIA[0-9A-Z]{16}\\b", "flags": "" },
+      { "id": "google-api-key", "pattern": "\\bAIza[0-9A-Za-z_-]{35}\\b", "flags": "" },
+      { "id": "slack-token", "pattern": "\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b", "flags": "" },
+      {
+        "id": "generic-secret-assignment",
+        "pattern": "\\b(api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|password|secret)\\b\\s*[:=]\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']",
+        "flags": "i"
+      }
+    ]
+  },
+  "providers": [
+    {
+      "id": "opencode-go",
+      "dir": "providers/opencode-go",
+      "displayName": "OpenCode Go CLIProxyAPI plugin",
+      "pluginId": "opencode-go-cliproxyapi",
+      "importStrategy": "git-subtree",
+      "status": "planned",
+      "sourceRepo": "massiveits/opencode-go-cliproxyapi",
+      "sourceBranch": "main",
+      "remote": {
+        "name": "opencode-upstream",
+        "url": "https://github.com/massiveits/opencode-go-cliproxyapi.git",
+        "branch": "main"
+      },
+      "firstImportCommand": "git subtree add --prefix=providers/opencode-go opencode-upstream main --squash",
+      "syncCommand": "git subtree pull --prefix=providers/opencode-go opencode-upstream main --squash",
+      "sourceDecision": {
+        "status": "deferred",
+        "owner": "SPEC5-B",
+        "note": "上游 massiveits/opencode-go-cliproxyapi 干净但落后本地 fork williamxhero/opencode-go-cliproxyapi-ex 17 个定制提交；SPEC5-B 决定导入源（上游 + 重新套用定制，或 fork 树 + 排除构建产物）。契约只固定目录、排除清单与同步命令形态。"
+      },
+      "preserveCustomizations": [
+        "d41f0a24 Use CLIProxyAPI v8 native quotas and readable OpenCode Go accounts",
+        "0900bbec feat(quota): register as a native quota provider on v7 and v8 hosts",
+        "8add1563 fix(quota): bound quota lookups and pin the legacy schema in tests",
+        "97548372 fix(quota): report the rolling window as 5h",
+        "a7a6b85a fix(catalog): route space bunny models and document strict sync",
+        "f5806103 test(catalog): cover free muse spark contributor model",
+        "74f9d0ab fix(quota): restore legacy management resource page",
+        "ae954849 fix(quota): wrap legacy credential list response",
+        "504d2e85 feat: add OpenCode Go credential management route",
+        "d97568fc feat(credentials): label = alias, else masked api key; keep key fragments out of auth file names",
+        "86f6a27f fix(register): a relative or unreadable host auth path must not abort plugin registration",
+        "f88846cc fix(credentials): resolve host-relative auth paths so create and duplicate checks work on the live core"
+      ],
+      "license": {
+        "spdx": "MIT",
+        "copyright": "Copyright (c) 2026 massiveits",
+        "licenseFile": "LICENSE"
+      },
+      "excludeGlobs": [
+        "plugins/**",
+        "**/*.dll",
+        "**/*.exe",
+        "**/*.so",
+        "**/*.dylib",
+        "**/*.pdb",
+        "**/*.lib",
+        "**/*.o",
+        "**/*.a",
+        "**/*.log",
+        "worker*",
+        "prompt8-credential-route.md",
+        "**/node_modules/**",
+        "**/.cache/**",
+        "**/__pycache__/**",
+        "**/dist/**"
+      ],
+      "requiredFiles": ["LICENSE", "go.mod", "main.go"],
+      "contentAllowlist": []
+    },
+    {
+      "id": "qwen",
+      "dir": "providers/qwen",
+      "displayName": "Qwen Token Plan CLIProxyAPI plugin",
+      "pluginId": "qwen-cliproxyapi",
+      "importStrategy": "one-time-import",
+      "status": "planned",
+      "sourceRepo": "williamxhero/qwen-cliproxyapi",
+      "sourceBranch": "claude/qwen-provider",
+      "remote": null,
+      "firstImportCommand": null,
+      "syncCommand": null,
+      "sourceDecision": {
+        "status": "decided",
+        "owner": "SPEC5-A",
+        "note": "协调者默认（comment 6080913010）：Qwen 只作一次性目录导入，不虚构 upstream 或 subtree remote；出现真实上游同步需求时另立 SPEC。权威快照为 williamxhero/qwen-cliproxyapi 默认分支 claude/qwen-provider。"
+      },
+      "cli": {
+        "path": "cmd/bailian-quota",
+        "buildCommand": "go build -o bin/bailian-quota.exe ./cmd/bailian-quota"
+      },
+      "attributionNote": "Qwen 组件改编自 massiveits/opencode-go-cliproxyapi（MIT，Copyright (c) 2026 massiveits）；providers/qwen/NOTICE.md 必须随导入原样保留。",
+      "license": {
+        "spdx": "MIT",
+        "copyright": "Copyright (c) 2026 williamxhero",
+        "licenseFile": "LICENSE",
+        "noticeFile": "NOTICE.md"
+      },
+      "excludeGlobs": [
+        "**/*.dll",
+        "**/*.exe",
+        "**/*.so",
+        "**/*.dylib",
+        "**/*.pdb",
+        "**/*.log",
+        "**/node_modules/**",
+        "**/.cache/**",
+        "**/__pycache__/**",
+        "**/dist/**"
+      ],
+      "requiredFiles": ["LICENSE", "NOTICE.md", "go.mod", "main.go", "cmd/bailian-quota/main.go"],
+      "contentAllowlist": []
+    }
+  ],
+  "buildInterface": {
+    "status": "contract-only",
+    "implementedBy": "SPEC5-D",
+    "changesInThisSpec": false,
+    "note": "SPEC5-A 只固定接口（目录、独立 module、产物名、命令形态）。package.json 与 .github/workflows 的落地在 SPEC5-D，本 SPEC 不修改它们。",
+    "goVersion": "1.26.7",
+    "artifacts": [
+      {
+        "id": "opencode-go-plugin",
+        "provider": "opencode-go",
+        "kind": "plugin-c-shared",
+        "workdir": "providers/opencode-go",
+        "output": "providers/opencode-go/bin/opencode-go-cliproxyapi-windows-amd64.dll",
+        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/opencode-go-cliproxyapi-windows-amd64.dll ."
+      },
+      {
+        "id": "qwen-plugin",
+        "provider": "qwen",
+        "kind": "plugin-c-shared",
+        "workdir": "providers/qwen",
+        "output": "providers/qwen/bin/qwen-cliproxyapi-windows-amd64.dll",
+        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/qwen-cliproxyapi-windows-amd64.dll ."
+      },
+      {
+        "id": "qwen-cli",
+        "provider": "qwen",
+        "kind": "cli",
+        "workdir": "providers/qwen",
+        "output": "providers/qwen/bin/bailian-quota.exe",
+        "build": "go build -o bin/bailian-quota.exe ./cmd/bailian-quota"
+      }
+    ],
+    "moduleBoundary": "每个 provider 保持独立 go.mod（module opencode-go-cliproxyapi / qwen-cliproxyapi），不并入 apps/manager-server module。",
+    "ciHook": {
+      "existingWorkflow": ".github/workflows/pr-check.yml",
+      "plannedJob": "providers",
+      "landedBy": "SPEC5-D",
+      "checkScript": "bin/release/check-provider-import-boundary.mjs"
+    }
+  }
+}
