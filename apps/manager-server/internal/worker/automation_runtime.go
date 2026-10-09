@@ -11,6 +11,7 @@ import (
 
 type quotaAutomationWorker interface {
 	Start(ctx context.Context)
+	SetEnabled(enabled bool)
 	HandleUsageEvents(ctx context.Context, cfg collectorpkg.RuntimeConfig, events []usage.Event)
 	UpdateRuntimeConfig(ctx context.Context, cfg collectorpkg.RuntimeConfig)
 }
@@ -48,6 +49,9 @@ func (r *AutomationRuntime) Start(ctx context.Context) {
 	if r == nil {
 		return
 	}
+	// Apply the persisted policy before any worker starts so a paused policy
+	// cannot take (or recover from) an automatic action during startup.
+	r.applySettings(ctx)
 	if r.quotaWorker != nil {
 		r.quotaWorker.Start(ctx)
 	}
@@ -71,12 +75,25 @@ func (r *AutomationRuntime) Reload(ctx context.Context) error {
 	if r == nil {
 		return nil
 	}
+	r.applySettings(ctx)
+	r.logState(ctx, "reloaded")
+	return nil
+}
+
+// applySettings pushes the persisted account-processing policy into the workers
+// that gate automatic actions. It is used both on startup (before the workers
+// begin) and on every policy PATCH so OFF takes effect immediately.
+func (r *AutomationRuntime) applySettings(ctx context.Context) {
+	if r == nil || r.settings == nil {
+		return
+	}
 	settings := r.settings.RuntimeSettings(ctx)
+	if r.quotaWorker != nil {
+		r.quotaWorker.SetEnabled(settings.QuotaCooldownEnabled)
+	}
 	if r.accountWorker != nil {
 		r.accountWorker.SetAutoDisable(settings.AccountActionsAutoDisable)
 	}
-	r.logState(ctx, "reloaded")
-	return nil
 }
 
 func (r *AutomationRuntime) logState(ctx context.Context, action string) {
