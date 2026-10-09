@@ -6,6 +6,7 @@
   "attributionFile": "NOTICE",
   "description": "CPAMP 单仓 providers 布局、许可证与导入边界契约（SPEC5-A）。只定义契约与排除规则，不导入插件源码。",
   "globalForbidden": {
+    "maxFileBytes": 1048576,
     "binaryExtensions": [
       ".dll",
       ".exe",
@@ -201,7 +202,9 @@
         "kind": "plugin-c-shared",
         "workdir": "providers/opencode-go",
         "output": "providers/opencode-go/bin/opencode-go-cliproxyapi-windows-amd64.dll",
-        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/opencode-go-cliproxyapi-windows-amd64.dll ."
+        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/opencode-go-cliproxyapi-windows-amd64.dll .",
+        "env": { "CGO_ENABLED": "1", "GOOS": "windows", "GOARCH": "amd64" },
+        "args": ["build", "-buildmode=c-shared", "-o", "bin/opencode-go-cliproxyapi-windows-amd64.dll", "."]
       },
       {
         "id": "qwen-plugin",
@@ -209,7 +212,9 @@
         "kind": "plugin-c-shared",
         "workdir": "providers/qwen",
         "output": "providers/qwen/bin/qwen-cliproxyapi-windows-amd64.dll",
-        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/qwen-cliproxyapi-windows-amd64.dll ."
+        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/qwen-cliproxyapi-windows-amd64.dll .",
+        "env": { "CGO_ENABLED": "1", "GOOS": "windows", "GOARCH": "amd64" },
+        "args": ["build", "-buildmode=c-shared", "-o", "bin/qwen-cliproxyapi-windows-amd64.dll", "."]
       },
       {
         "id": "qwen-cli",
@@ -217,7 +222,9 @@
         "kind": "cli",
         "workdir": "providers/qwen",
         "output": "providers/qwen/bin/bailian-quota.exe",
-        "build": "go build -o bin/bailian-quota.exe ./cmd/bailian-quota"
+        "build": "go build -o bin/bailian-quota.exe ./cmd/bailian-quota",
+        "env": {},
+        "args": ["build", "-o", "bin/bailian-quota.exe", "./cmd/bailian-quota"]
       }
     ],
     "moduleBoundary": "每个 provider 保持独立 go.mod（module opencode-go-cliproxyapi / qwen-cliproxyapi），不并入 apps/manager-server module。",
@@ -225,7 +232,23 @@
       "existingWorkflow": ".github/workflows/pr-check.yml",
       "plannedJob": "providers",
       "landedBy": "SPEC5-D",
+      "landed": true,
       "checkScript": "bin/release/check-provider-import-boundary.mjs"
+    },
+    "implementation": {
+      "landedBy": "SPEC5-D",
+      "packageScripts": {
+        "check:providers": "node bin/release/check-provider-import-boundary.mjs",
+        "test:providers": "node bin/release/run-provider-go.mjs test",
+        "lint:providers": "node bin/release/run-provider-go.mjs vet",
+        "build:providers": "node bin/release/build-providers.mjs"
+      },
+      "runProviderGo": "bin/release/run-provider-go.mjs",
+      "buildScript": "bin/release/build-providers.mjs",
+      "goVersionMatrix": ["1.26.x", "1.27.x"],
+      "osMatrix": ["ubuntu-latest", "windows-latest"],
+      "dllBuildPolicy": "CI 不强制编译 c-shared DLL：若宿主无可用的 C 工具链（mingw-w64，amd64 需 x86_64-w64-mingw32-gcc），build-providers.mjs 跳过 DLL 并打印本地构建命令与安装提示；Qwen CLI 产物始终构建。真实本地构建命令见本接口 artifacts[].build（在对应 workdir 内执行）。",
+      "providerTestCommand": "在各自 module 目录执行 `go test ./...`（run-provider-go.mjs 从仓库根逐一进入 providers/<id> 运行）。Go 多模块下仓库根不支持单一的 `go test ./providers/...` 通配（providers/ 自身不是 module），故以每 module 命令作为统一入口。"
     }
   }
 }
