@@ -1554,6 +1554,8 @@ func TestRateLimitAutoDisableWorkerDoesNotRecoverAmbiguousStatusMutationScope(t 
 		case r.URL.Path == "/v0/management/auth-files/status" && r.Method == http.MethodPatch:
 			patchCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case r.URL.Path == "/v0/management/quota/fetch" && r.Method == http.MethodPost:
+			authoritativeRecoveredQuota(w, "weekly")
 		default:
 			http.NotFound(w, r)
 		}
@@ -1796,6 +1798,8 @@ func TestRateLimitAutoDisableWorkerRecoversLegacyCodexCooldownWithoutIdentityEvi
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case "POST /v0/management/quota/fetch":
+			authoritativeRecoveredQuota(w, "weekly")
 		default:
 			http.NotFound(w, r)
 		}
@@ -2117,6 +2121,12 @@ func TestRateLimitAutoDisableWorkerRecoversDueCooldownFromManagerRuntimeConfigAf
 		case "/v0/management/usage-queue":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
+		case "/v0/management/quota/fetch":
+			if r.Method != http.MethodPost {
+				http.NotFound(w, r)
+				return
+			}
+			authoritativeRecoveredQuota(w, "weekly")
 		default:
 			http.NotFound(w, r)
 		}
@@ -2334,6 +2344,8 @@ func TestRateLimitAutoDisableWorkerRecoversXAICooldownWithoutTouchingManualDisab
 			state.disabled = item.Disabled
 			state.patches++
 			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/v0/management/quota/fetch" && r.Method == http.MethodPost:
+			authoritativeRecoveredQuota(w, "rolling_24h")
 		default:
 			http.NotFound(w, r)
 		}
@@ -2401,6 +2413,8 @@ func TestRateLimitAutoDisableWorkerRollsBackEnableWhenRecoveryPersistenceFails(t
 			disabled = payload.Disabled
 			patches = append(patches, payload.Disabled)
 			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/v0/management/quota/fetch" && r.Method == http.MethodPost:
+			authoritativeRecoveredQuota(w, "weekly")
 		default:
 			http.NotFound(w, r)
 		}
@@ -2461,7 +2475,8 @@ func TestRateLimitAutoDisableWorkerPersistsAndRecoversAfterRestart(t *testing.T)
 			http.Error(w, "missing auth", http.StatusUnauthorized)
 			return
 		}
-		if r.URL.Path != "/v0/management/auth-files" && r.URL.Path != "/v0/management/auth-files/status" {
+		if r.URL.Path != "/v0/management/auth-files" && r.URL.Path != "/v0/management/auth-files/status" &&
+			!(r.Method == http.MethodPost && r.URL.Path == "/v0/management/quota/fetch") {
 			http.NotFound(w, r)
 			return
 		}
@@ -2494,6 +2509,12 @@ func TestRateLimitAutoDisableWorkerPersistsAndRecoversAfterRestart(t *testing.T)
 			actions = append(actions, item)
 			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
+		case http.MethodPost:
+			if r.URL.Path != "/v0/management/quota/fetch" {
+				http.NotFound(w, r)
+				return
+			}
+			authoritativeRecoveredQuota(w, "weekly")
 		default:
 			http.NotFound(w, r)
 		}
@@ -2602,6 +2623,8 @@ func TestRateLimitAutoDisableWorkerStartsNewCycleAfterExternalEnable(t *testing.
 			patchStates = append(patchStates, payload.Disabled)
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		case r.URL.Path == "/v0/management/quota/fetch" && r.Method == http.MethodPost:
+			authoritativeRecoveredQuota(w, "weekly")
 		default:
 			http.NotFound(w, r)
 		}
@@ -2746,7 +2769,8 @@ func TestRateLimitAutoDisableWorkerPausesAutomaticActionsWhenPolicyDisabled(t *t
 			http.Error(w, "missing auth", http.StatusUnauthorized)
 			return
 		}
-		if r.URL.Path != "/v0/management/auth-files" && r.URL.Path != "/v0/management/auth-files/status" {
+		if r.URL.Path != "/v0/management/auth-files" && r.URL.Path != "/v0/management/auth-files/status" &&
+			!(r.Method == http.MethodPost && r.URL.Path == "/v0/management/quota/fetch") {
 			http.NotFound(w, r)
 			return
 		}
@@ -2779,6 +2803,12 @@ func TestRateLimitAutoDisableWorkerPausesAutomaticActionsWhenPolicyDisabled(t *t
 			actions = append(actions, item)
 			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
+		case http.MethodPost:
+			if r.URL.Path != "/v0/management/quota/fetch" {
+				http.NotFound(w, r)
+				return
+			}
+			authoritativeRecoveredQuota(w, "five_hour")
 		default:
 			http.NotFound(w, r)
 		}
