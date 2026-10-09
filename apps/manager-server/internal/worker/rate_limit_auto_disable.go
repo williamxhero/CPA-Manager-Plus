@@ -27,11 +27,22 @@ const (
 	quotaAutoDisableDefaultTick   = 15 * time.Second
 	quotaAutoDisableActionTimeout = 30 * time.Second
 	quotaCooldownDueLimit         = 100
-	xaiFreeUsageCooldown          = 24 * time.Hour
-	quotaReasonCodexUsageLimit    = "codex_usage_limit_reached"
-	quotaReasonXAIFreeUsage       = "xai_free_usage_exhausted"
-	quotaWindowRolling24H         = "rolling_24h"
-	quotaWindowUnknown            = "unknown"
+	// quotaCooldownConservativeCheckInterval spaces the conservative periodic
+	// quota checks used when the provider published no reset timestamp. It is a
+	// check schedule only and is never surfaced as a recovery time.
+	quotaCooldownConservativeCheckInterval = 1 * time.Hour
+	// quotaCooldownRecheckBackoff is the bounded backoff applied when a due
+	// cooldown cannot be confirmed recovered (still exhausted, probe unavailable,
+	// or probe error). It keeps the credential disabled and retries later.
+	quotaCooldownRecheckBackoff  = 15 * time.Minute
+	// xaiFreeUsageWindow is xAI's rolling free-usage window. It is used only as
+	// a staleness bound for exhaustion evidence that carries no provider reset
+	// timestamp; it is never persisted or displayed as a recovery time.
+	xaiFreeUsageWindow           = 24 * time.Hour
+	quotaReasonCodexUsageLimit   = "codex_usage_limit_reached"
+	quotaReasonXAIFreeUsage      = "xai_free_usage_exhausted"
+	quotaWindowRolling24H        = "rolling_24h"
+	quotaWindowUnknown           = "unknown"
 )
 
 // RateLimitAutoDisableWorker reacts to request-monitoring events in near real time.
@@ -53,6 +64,7 @@ type RateLimitAutoDisableWorker struct {
 	managementKey       string
 	enabled             bool
 	enableCheckInterval time.Duration
+	quotaProbe          quotaRecoveryProbe
 }
 
 type quotaAutoDisableCandidate struct {
@@ -67,6 +79,8 @@ type quotaAutoDisableCandidate struct {
 	ReasonCode      string
 	WindowKind      string
 	ResetAt         time.Time
+	RecoverAtKind   string
+	NextCheckAtMS   int64
 	EventHash       string
 	Reason          string
 	Owner           string
@@ -103,6 +117,7 @@ func NewRateLimitAutoDisableWorkerWithMutationCoordinator(
 		jobs:                make(chan quotaAutoDisableCandidate, quotaAutoDisableQueueSize),
 		enabled:             true,
 		enableCheckInterval: quotaAutoDisableDefaultTick,
+		quotaProbe:          newHTTPQuotaRecoveryProbe(),
 	}
 	if len(initial) > 0 {
 		w.setRuntimeConfig(initial[0].CPAUpstreamURL, initial[0].ManagementKey)
@@ -251,7 +266,8 @@ func (w *RateLimitAutoDisableWorker) handleCandidateLocked(ctx context.Context, 
 		return
 	}
 	now := time.Now()
-	if !candidate.ResetAt.After(now) {
+	candidateKind := model.NormalizeQuotaCooldownRecoverKind(candidate.RecoverAtKind, candidate.ResetAt.UnixMilli())
+	if !candidate.ResetAt.After(now) && candidateKind != model.QuotaCooldownRecoverKindUnknown {
 		log.Printf("[quota-auto-disable] quota event for auth file %q has non-future reset time %s, skip auto disable", candidate.FileName, candidate.ResetAt.Format(time.RFC3339))
 		return
 	}
@@ -370,6 +386,18 @@ func (w *RateLimitAutoDisableWorker) handleCandidateLocked(ctx context.Context, 
 
 	owner := firstNonEmpty(candidate.Owner, model.QuotaCooldownOwnerUsage429)
 	cooldownEvidenceJSON := candidate.EvidenceJSON
+	persistRecoverAtMS := candidate.ResetAt.UnixMilli()
+	persistNextCheckAtMS := candidate.NextCheckAtMS
+	if candidateKind != model.QuotaCooldownRecoverKindProvider {
+		// No provider reset timestamp: never persist a fabricated recovery time.
+		// Schedule a conservative periodic check instead.
+		persistRecoverAtMS = 0
+		if persistNextCheckAtMS <= 0 {
+			persistNextCheckAtMS = now.Add(quotaCooldownConservativeCheckInterval).UnixMilli()
+		}
+	} else if persistNextCheckAtMS <= 0 {
+		persistNextCheckAtMS = persistRecoverAtMS
+	}
 	persisted, err := w.store.UpsertQuotaCooldown(ctx, store.QuotaCooldownUpsert{
 		AuthFileName:        candidate.FileName,
 		AuthIndex:           resolvedAuthIndex,
@@ -378,7 +406,9 @@ func (w *RateLimitAutoDisableWorker) handleCandidateLocked(ctx context.Context, 
 		ReasonCode:          candidate.ReasonCode,
 		WindowKind:          candidate.WindowKind,
 		EvidenceJSON:        cooldownEvidenceJSON,
-		RecoverAtMS:         candidate.ResetAt.UnixMilli(),
+		RecoverAtMS:         persistRecoverAtMS,
+		RecoverAtKind:       candidateKind,
+		NextCheckAtMS:       persistNextCheckAtMS,
 		Owner:               owner,
 		EventHash:           candidate.EventHash,
 		PreDisabledState:    preDisabled,
@@ -411,7 +441,11 @@ func (w *RateLimitAutoDisableWorker) handleCandidateLocked(ctx context.Context, 
 		}
 		return
 	}
-	log.Printf("[quota-auto-disable] disabled auth file %q; persisted CPAMP-owned auto-enable at %s", candidate.FileName, time.UnixMilli(persisted.RecoverAtMS).Format(time.RFC3339))
+	if persisted.RecoverAtMS > 0 {
+		log.Printf("[quota-auto-disable] disabled auth file %q; persisted CPAMP-owned auto-enable at %s", candidate.FileName, time.UnixMilli(persisted.RecoverAtMS).Format(time.RFC3339))
+	} else {
+		log.Printf("[quota-auto-disable] disabled auth file %q; no provider reset time, conservative quota checks only (next check %s)", candidate.FileName, time.UnixMilli(persisted.NextCheckAtMS).Format(time.RFC3339))
+	}
 }
 
 func (w *RateLimitAutoDisableWorker) extendExistingCooldown(ctx context.Context, candidate quotaAutoDisableCandidate, current authFile) bool {
@@ -502,6 +536,12 @@ func (w *RateLimitAutoDisableWorker) extendExistingCooldown(ctx context.Context,
 	if owner == model.QuotaCooldownOwnerXAIFreeUsage {
 		evidenceJSON = mergeXAIProviderUsageEvidence(primaryEvidence, supplementalEvidence, finalRecoverAtMS)
 	}
+	extensionKind := model.NormalizeQuotaCooldownRecoverKind(candidate.RecoverAtKind, candidateRecoverAtMS)
+	if extensionKind != model.QuotaCooldownRecoverKindProvider && finalRecoverAtMS > 0 {
+		// A real provider recovery time is already on file; never downgrade the
+		// kind and hide it behind a conservative check schedule.
+		extensionKind = model.QuotaCooldownRecoverKindProvider
+	}
 	_, err = w.store.UpsertQuotaCooldown(ctx, store.QuotaCooldownUpsert{
 		AuthFileName:     candidate.FileName,
 		AuthIndex:        firstNonEmpty(candidate.AuthIndex, existing.AuthIndex, current.AuthIndex),
@@ -511,6 +551,8 @@ func (w *RateLimitAutoDisableWorker) extendExistingCooldown(ctx context.Context,
 		WindowKind:       windowKind,
 		EvidenceJSON:     evidenceJSON,
 		RecoverAtMS:      finalRecoverAtMS,
+		RecoverAtKind:    extensionKind,
+		NextCheckAtMS:    candidate.NextCheckAtMS,
 		Owner:            owner,
 		EventHash:        eventHash,
 		PreDisabledState: false,
@@ -742,6 +784,16 @@ func (w *RateLimitAutoDisableWorker) recoverCooldown(ctx context.Context, baseUR
 		return
 	}
 
+	if deferReason, deferred := w.recoveryDeferred(ctx, baseURL, managementKey, target, item); deferred {
+		if err := w.store.RescheduleQuotaCooldown(ctx, item.ID, now.Add(quotaCooldownRecheckBackoff).UnixMilli(), deferReason); err != nil {
+			_ = w.store.RecordQuotaCooldownFailure(ctx, item.ID, deferReason+fmt.Sprintf(" (reschedule failed: %v)", err))
+			log.Printf("[quota-auto-disable] failed to reschedule cooldown id=%d authFile=%q: %v", item.ID, item.AuthFileName, err)
+			return
+		}
+		log.Printf("[quota-auto-disable] deferring recovery id=%d authFile=%q: %s", item.ID, item.AuthFileName, deferReason)
+		return
+	}
+
 	log.Printf("[quota-auto-disable] reset time reached for auth file %q account=%q, enabling", item.AuthFileName, item.AccountSnapshot)
 	if err := w.patchAuthFileTarget(ctx, baseURL, managementKey, target, false); err != nil {
 		_ = w.store.RecordQuotaCooldownFailure(ctx, item.ID, err.Error())
@@ -779,12 +831,68 @@ func (w *RateLimitAutoDisableWorker) recoverCooldown(ctx context.Context, baseUR
 	log.Printf("[quota-auto-disable] enabled auth file %q after quota cooldown", item.AuthFileName)
 }
 
+// recoveryDeferred reports whether an automatic recovery must be held off
+// because the provider quota could not be confirmed recovered. Missing data is
+// never treated as recovery: an unknown-reset cooldown always requires a
+// positive confirmation, while a provider-reset cooldown may only fall back to
+// its provider-supplied schedule when no quota source is reachable at all.
+func (w *RateLimitAutoDisableWorker) recoveryDeferred(ctx context.Context, baseURL string, managementKey string, target cpaauthfiles.StatusMutationTarget, item store.QuotaCooldown) (string, bool) {
+	if w.quotaProbe == nil {
+		return "", false
+	}
+	kind := model.NormalizeQuotaCooldownRecoverKind(item.RecoverAtKind, item.RecoverAtMS)
+	res, err := w.quotaProbe.ProbeQuotaRecovery(ctx, baseURL, managementKey, item.Provider, item.AuthIndex, target.File.AccountID)
+	if err != nil {
+		if kind == model.QuotaCooldownRecoverKindProvider {
+			log.Printf("[quota-auto-disable] quota probe unavailable for auth file %q: %v; provider reset schedule remains authoritative", item.AuthFileName, err)
+			return "", false
+		}
+		return fmt.Sprintf("quota recovery not confirmed: probe error: %v", err), true
+	}
+	if !res.Available {
+		if kind == model.QuotaCooldownRecoverKindProvider {
+			log.Printf("[quota-auto-disable] no authoritative quota source for auth file %q; provider reset schedule remains authoritative", item.AuthFileName)
+			return "", false
+		}
+		return "quota recovery not confirmed: no authoritative quota source", true
+	}
+	if res.AnyExhausted() {
+		return "quota still exhausted for " + summarizeProbeWindows(res.Windows), true
+	}
+	return "", false
+}
+
+func summarizeProbeWindows(windows []quotaProbeWindow) string {
+	parts := make([]string, 0, len(windows))
+	for _, window := range windows {
+		if !window.Exhausted {
+			continue
+		}
+		kind := strings.TrimSpace(window.WindowKind)
+		if kind == "" {
+			kind = quotaWindowUnknown
+		}
+		parts = append(parts, kind)
+	}
+	if len(parts) == 0 {
+		return quotaWindowUnknown
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
 func quotaAutoDisableCandidateFromEvent(event usage.Event, baseURL string, managementKey string, now time.Time) (quotaAutoDisableCandidate, bool) {
-	if resetAt, ok := xaiFreeUsageResetTimeFromEvent(event, now); ok {
+	if resetAt, kind, ok := xaiFreeUsageResetTimeFromEvent(event, now); ok {
 		fileName := strings.TrimSpace(event.AuthFileSnapshot)
 		if fileName == "" {
 			log.Printf("[quota-auto-disable] xAI free-usage event %q has no auth file snapshot, skip auto disable", event.EventHash)
 			return quotaAutoDisableCandidate{}, false
+		}
+		nextCheckAtMS := int64(0)
+		if kind == model.QuotaCooldownRecoverKindProvider {
+			nextCheckAtMS = resetAt.UnixMilli()
+		} else {
+			nextCheckAtMS = xaiFreeUsageObservedAt(event, now).Add(quotaCooldownConservativeCheckInterval).UnixMilli()
 		}
 		return quotaAutoDisableCandidate{
 			BaseURL:         baseURL,
@@ -797,6 +905,8 @@ func quotaAutoDisableCandidateFromEvent(event usage.Event, baseURL string, manag
 			ReasonCode:      quotaReasonXAIFreeUsage,
 			WindowKind:      quotaWindowRolling24H,
 			ResetAt:         resetAt,
+			RecoverAtKind:   kind,
+			NextCheckAtMS:   nextCheckAtMS,
 			EventHash:       event.EventHash,
 			Reason:          event.FailSummary,
 			Owner:           model.QuotaCooldownOwnerXAIFreeUsage,
@@ -830,31 +940,24 @@ func quotaAutoDisableCandidateFromEvent(event usage.Event, baseURL string, manag
 	}, true
 }
 
-func xaiFreeUsageResetTimeFromEvent(event usage.Event, now time.Time) (time.Time, bool) {
+// xaiFreeUsageResetTimeFromEvent reports whether an xAI free-usage exhaustion
+// event should start a cooldown, and how recovery is scheduled. When the
+// provider published no reset timestamp (kind="unknown"), no recovery time is
+// fabricated: the cooldown is driven only by conservative periodic checks.
+func xaiFreeUsageResetTimeFromEvent(event usage.Event, now time.Time) (time.Time, string, bool) {
 	if !event.Failed || (event.FailStatusCode != http.StatusPaymentRequired && event.FailStatusCode != http.StatusTooManyRequests) {
-		return time.Time{}, false
+		return time.Time{}, "", false
 	}
 	if !isXAIFreeUsageProvider(event) {
-		return time.Time{}, false
+		return time.Time{}, "", false
 	}
 	observedAt := xaiFreeUsageObservedAt(event, now)
 	texts := []string{event.FailBody, event.RawJSON, event.FailSummary}
 	if providerUsage := xaiProviderUsageFromEvent(event, now); providerUsage != nil && strings.EqualFold(providerUsage.Code, usage.ProviderUsageCodeXAIFree) {
-		// Free-usage recovery is quota-window based. Transport Retry-After only
-		// describes short request backoff and must not drive credential cooldown.
-		if providerUsage.RecoverAtMS > 0 && !providerUsage.RecoverAtEstimated {
-			resetAt := time.UnixMilli(providerUsage.RecoverAtMS)
-			return resetAt, resetAt.After(now)
+		if resetAt, ok := xaiExplicitResetAt(providerUsage, texts, observedAt, now); ok {
+			return resetAt, model.QuotaCooldownRecoverKindProvider, true
 		}
-		if resetAt, ok := xaiFreeUsageResetTimeFromTexts(texts, observedAt); ok {
-			return resetAt, resetAt.After(now)
-		}
-		if providerUsage.RecoverAtMS > 0 {
-			resetAt := time.UnixMilli(providerUsage.RecoverAtMS)
-			return resetAt, resetAt.After(now)
-		}
-		resetAt := observedAt.Add(xaiFreeUsageCooldown)
-		return resetAt, resetAt.After(now)
+		return time.Time{}, model.QuotaCooldownRecoverKindUnknown, xaiUnknownResetEvidenceFresh(observedAt, now)
 	}
 	matched := false
 	for _, text := range texts {
@@ -869,14 +972,37 @@ func xaiFreeUsageResetTimeFromEvent(event usage.Event, now time.Time) (time.Time
 			break
 		}
 	}
-	if matched {
-		if resetAt, ok := xaiFreeUsageResetTimeFromTexts(texts, observedAt); ok {
-			return resetAt, resetAt.After(now)
+	if !matched {
+		return time.Time{}, "", false
+	}
+	if resetAt, ok := xaiFreeUsageResetTimeFromTexts(texts, observedAt); ok {
+		return resetAt, model.QuotaCooldownRecoverKindProvider, resetAt.After(now)
+	}
+	return time.Time{}, model.QuotaCooldownRecoverKindUnknown, xaiUnknownResetEvidenceFresh(observedAt, now)
+}
+
+// xaiExplicitResetAt returns a provider-supplied reset timestamp, whether it
+// came from structured metadata or the raw response body. It never derives a
+// recovery time from the observation clock: an estimated (window-based) value
+// is rejected so the caller schedules a conservative check instead.
+func xaiExplicitResetAt(providerUsage *usage.ProviderUsageMetadata, texts []string, observedAt, now time.Time) (time.Time, bool) {
+	if providerUsage != nil && providerUsage.RecoverAtMS > 0 && !providerUsage.RecoverAtEstimated {
+		if resetAt := time.UnixMilli(providerUsage.RecoverAtMS); resetAt.After(now) {
+			return resetAt, true
 		}
-		resetAt := observedAt.Add(xaiFreeUsageCooldown)
-		return resetAt, resetAt.After(now)
+	}
+	if resetAt, ok := xaiFreeUsageResetTimeFromTexts(texts, observedAt); ok {
+		return resetAt, true
 	}
 	return time.Time{}, false
+}
+
+// xaiUnknownResetEvidenceFresh reports whether an exhaustion observed without a
+// provider reset timestamp is still within xAI's rolling window. The window is
+// a staleness bound for the evidence only — it is never surfaced or persisted
+// as a recovery time.
+func xaiUnknownResetEvidenceFresh(observedAt, now time.Time) bool {
+	return observedAt.Add(xaiFreeUsageWindow).After(now)
 }
 
 func xaiFreeUsageObservedAt(event usage.Event, fallback time.Time) time.Time {
@@ -941,6 +1067,11 @@ func xaiProviderUsageEvidenceJSON(event usage.Event, resetAt time.Time, now time
 		default:
 			evidence.RecoverAtEstimated = true
 		}
+	} else {
+		// The provider published no reset timestamp. Do not persist an estimated
+		// recovery time as if it were a quota reset.
+		evidence.RecoverAtMS = 0
+		evidence.RecoverAtEstimated = false
 	}
 	normalized := usage.NormalizeProviderUsageMetadata(&evidence)
 	if normalized == nil {

@@ -885,6 +885,10 @@ func (s *Store) RecordQuotaCooldownFailure(ctx context.Context, id int64, reason
 	return s.QuotaCooldowns.RecordFailure(ctx, id, reason)
 }
 
+func (s *Store) RescheduleQuotaCooldown(ctx context.Context, id int64, nextCheckAtMS int64, reason string) error {
+	return s.QuotaCooldowns.Reschedule(ctx, id, nextCheckAtMS, reason)
+}
+
 func (s *Store) AddDeadLetter(ctx context.Context, payload string, parseErr error) error {
 	return s.DeadLetters.Insert(ctx, payload, parseErr.Error())
 }
