@@ -34,15 +34,15 @@ const (
 	// quotaCooldownRecheckBackoff is the bounded backoff applied when a due
 	// cooldown cannot be confirmed recovered (still exhausted, probe unavailable,
 	// or probe error). It keeps the credential disabled and retries later.
-	quotaCooldownRecheckBackoff  = 15 * time.Minute
+	quotaCooldownRecheckBackoff = 15 * time.Minute
 	// xaiFreeUsageWindow is xAI's rolling free-usage window. It is used only as
 	// a staleness bound for exhaustion evidence that carries no provider reset
 	// timestamp; it is never persisted or displayed as a recovery time.
-	xaiFreeUsageWindow           = 24 * time.Hour
-	quotaReasonCodexUsageLimit   = "codex_usage_limit_reached"
-	quotaReasonXAIFreeUsage      = "xai_free_usage_exhausted"
-	quotaWindowRolling24H        = "rolling_24h"
-	quotaWindowUnknown           = "unknown"
+	xaiFreeUsageWindow         = 24 * time.Hour
+	quotaReasonCodexUsageLimit = "codex_usage_limit_reached"
+	quotaReasonXAIFreeUsage    = "xai_free_usage_exhausted"
+	quotaWindowRolling24H      = "rolling_24h"
+	quotaWindowUnknown         = "unknown"
 )
 
 // RateLimitAutoDisableWorker reacts to request-monitoring events in near real time.
@@ -833,27 +833,17 @@ func (w *RateLimitAutoDisableWorker) recoverCooldown(ctx context.Context, baseUR
 
 // recoveryDeferred reports whether an automatic recovery must be held off
 // because the provider quota could not be confirmed recovered. Missing data is
-// never treated as recovery: an unknown-reset cooldown always requires a
-// positive confirmation, while a provider-reset cooldown may only fall back to
-// its provider-supplied schedule when no quota source is reachable at all.
+// never treated as recovery: every cooldown requires a positive, authoritative
+// confirmation before the enable mutation; resetAt only schedules this probe.
 func (w *RateLimitAutoDisableWorker) recoveryDeferred(ctx context.Context, baseURL string, managementKey string, target cpaauthfiles.StatusMutationTarget, item store.QuotaCooldown) (string, bool) {
 	if w.quotaProbe == nil {
-		return "", false
+		return "quota recovery not confirmed: probe unavailable", true
 	}
-	kind := model.NormalizeQuotaCooldownRecoverKind(item.RecoverAtKind, item.RecoverAtMS)
 	res, err := w.quotaProbe.ProbeQuotaRecovery(ctx, baseURL, managementKey, item.Provider, item.AuthIndex, target.File.AccountID)
 	if err != nil {
-		if kind == model.QuotaCooldownRecoverKindProvider {
-			log.Printf("[quota-auto-disable] quota probe unavailable for auth file %q: %v; provider reset schedule remains authoritative", item.AuthFileName, err)
-			return "", false
-		}
 		return fmt.Sprintf("quota recovery not confirmed: probe error: %v", err), true
 	}
 	if !res.Available {
-		if kind == model.QuotaCooldownRecoverKindProvider {
-			log.Printf("[quota-auto-disable] no authoritative quota source for auth file %q; provider reset schedule remains authoritative", item.AuthFileName)
-			return "", false
-		}
 		return "quota recovery not confirmed: no authoritative quota source", true
 	}
 	if res.AnyExhausted() {
