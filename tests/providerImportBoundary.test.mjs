@@ -247,6 +247,31 @@ describe('provider import boundary contract', () => {
     expect(findings.join('\n')).not.toContain(FAKE_KEY);
   });
 
+  it('rejects a provider file larger than the configured cap', () => {
+    const base = withProviders({ ...baseProvider(), status: 'imported' });
+    const manifest = {
+      ...base,
+      globalForbidden: { ...base.globalForbidden, maxFileBytes: 32 },
+    };
+    const root = makeRepo({
+      manifest,
+      providerFiles: {
+        'providers/opencode-go/LICENSE': 'MIT',
+        'providers/opencode-go/go.mod': 'module x\n',
+        'providers/opencode-go/blob.txt': 'x'.repeat(64),
+      },
+    });
+
+    const { ok, findings } = runBoundaryCheck({ root });
+
+    expect(ok).toBe(false);
+    expect(
+      findings.some(
+        (finding) => finding.includes('blob.txt') && finding.includes('byte provider file cap')
+      )
+    ).toBe(true);
+  });
+
   it('fails when an imported provider is missing a required file', () => {
     const manifest = withProviders({ ...baseProvider(), status: 'imported' });
     const root = makeRepo({
