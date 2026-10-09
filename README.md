@@ -18,9 +18,16 @@ Operate providers, credentials, OAuth, plugins, and configuration while keeping 
 
 [中文](README_CN.md) ｜ [Live Demo](https://seakee.github.io/CPA-Manager-Plus/) ｜ [Documentation](https://seakee.github.io/CPA-Manager-Plus/docs/en/) ｜ [Install](#quick-start)
 
-> This repository is the **CPAMP-EX** fork. Fork-specific customizations and the upstream-merge checklist live in [docs/FORK-MAINTENANCE.md](docs/FORK-MAINTENANCE.md).
+> This repository is the **CPAMP-EX** fork. Fork-specific customizations and the upstream-merge checklist live in [docs/FORK-MAINTENANCE.md](docs/FORK-MAINTENANCE.md). The fork also bundles the OpenCode Go and Qwen CLIProxyAPI provider plugins under [`providers/`](providers/README.md): one repository builds the panel and the plugin sources, guarded by an import boundary and a providers CI job.
 
 </div>
+
+## Fork Additions (CPAMP-EX)
+
+Upstream `seakee/CPA-Manager-Plus` stays the base; this fork adds the items below. The full list, the upstream-merge checklist, and the provider sync runbooks live in [docs/FORK-MAINTENANCE.md](docs/FORK-MAINTENANCE.md).
+
+- **Single-repository providers** — the OpenCode Go and Qwen CLIProxyAPI plugin sources (with the Qwen `bailian-quota` CLI) live under [`providers/`](providers/README.md). The same repo builds the panel and the plugins, with an import-boundary guard and a `providers` CI job. Layout/licence/import contract: [docs/providers-layout-contract.md](docs/providers-layout-contract.md).
+- **Panel-side additions** — OpenCode Go credential management and quota, Qwen plan/quota rendering, provider key aliases, manual plugin credential forms, protected plan-credential editing, and the unified `/plan-credentials` page, plus the CPAMP-EX branding.
 
 ## What Can CPAMP Help You Answer?
 
