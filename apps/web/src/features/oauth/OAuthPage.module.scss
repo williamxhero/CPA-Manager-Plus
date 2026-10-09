@@ -68,6 +68,36 @@
   }
 }
 
+.planCredentialRow {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+
+  > :global(.form-group) {
+    flex: 1 1 180px;
+    min-width: 0;
+  }
+
+  > :global(.form-group):nth-child(2) {
+    flex: 2 1 300px;
+  }
+
+  > .callbackActions {
+    flex: 0 0 auto;
+  }
+
+  > :global(.status-badge) {
+    flex-basis: 100%;
+  }
+
+  @include mobile {
+    > :global(.form-group),
+    > :global(.form-group):nth-child(2) {
+      flex-basis: 100%;
+    }
+  }
+}
+
 .cardHint {
   margin: 0;
   font-size: 13px;

@@ -9,6 +9,11 @@ import resourcePageSource from './PluginResourcePage.tsx?raw';
 
 const planCredentialKeys = [
   'title',
+  'alias_label',
+  'base_url_label',
+  'api_key_label',
+  'add_button',
+  'alias_placeholder',
   'loading',
   'empty',
   'required_field',
@@ -87,6 +92,44 @@ describe('plan credentials app wiring', () => {
       expect(messages?.required_field, name).toContain('{{field}}');
       expect(getPlanNav(locale).plan_credentials, name).toBe(messages?.title);
       expect(getPlanNav(locale).plan_credentials_short.trim().length, name).toBeGreaterThan(0);
+    }
+  );
+
+  it.each([
+    [en, 'Alias', 'Add'],
+    [zhCN, '别名', '添加'],
+    [zhTW, '別名', '新增'],
+    [ru, 'Псевдоним', 'Добавить'],
+  ])('uses concise localized form labels %#', (locale, alias, add) => {
+    const messages = getPlanCredentials(locale);
+    expect(messages?.alias_label).toBe(alias);
+    expect(messages?.base_url_label).toBe('Base URL');
+    expect(messages?.api_key_label).toBe('API Key');
+    expect(messages?.add_button).toBe(add);
+  });
+
+  it.each(Object.entries(locales))(
+    'includes all account plan-editor messages in %s',
+    (_name, locale) => {
+      const keys = [
+        'config_plan_alias_hint',
+        'config_plan_key_hint',
+        'config_plan_base_url_hint',
+        'config_plan_saved_success',
+        'config_error_plan_base_url',
+        'config_error_plan_api_key',
+        'config_error_plan_duplicate',
+        'config_error_plan_save',
+        'config_error_plan_source_changed',
+        'config_error_plan_configured',
+      ];
+      const account = locale.accounts as Record<string, string>;
+      expect(
+        Object.keys(account)
+          .filter((key) => key.startsWith('config_plan_') || key.startsWith('config_error_plan_'))
+          .sort()
+      ).toEqual(keys.sort());
+      for (const key of keys) expect(account[key]?.trim().length).toBeGreaterThan(0);
     }
   );
 

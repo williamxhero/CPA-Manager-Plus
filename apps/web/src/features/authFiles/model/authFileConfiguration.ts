@@ -7,6 +7,13 @@ import {
 } from '@/types';
 import type { AuthFileFieldsPatch } from '@/services/api/authFiles';
 import {
+  getPlanCredentialDefaultBaseUrl,
+  isValidPlanCredentialApiKey,
+  isValidPlanCredentialBaseUrl,
+  maskPlanCredentialKey,
+  redactPlanCredentialText,
+} from '@/utils/planCredentials';
+import {
   normalizeExcludedModels,
   normalizeProviderKey,
   parseDisableCoolingValue,
@@ -42,6 +49,8 @@ export type AuthFileConfigurationDraft = {
   websockets: boolean;
   xaiRoutingMode: XaiRoutingMode;
   baseUrl: string;
+  alias: string;
+  apiKey: string;
   cloakMode: string;
   cloakStrictMode: boolean;
   cloakSensitiveWordsText: string;
@@ -58,6 +67,8 @@ export type AuthFileConfigurationErrorKey =
   | 'accounts.config_error_weight_range'
   | 'accounts.config_error_request_retry_integer'
   | 'accounts.config_error_xai_base_url'
+  | 'accounts.config_error_plan_base_url'
+  | 'accounts.config_error_plan_api_key'
   | 'accounts.config_error_cloak_mode';
 
 export type AuthFileConfigurationErrors = Partial<
@@ -68,6 +79,7 @@ export type AuthFileConfigurationCapabilities = {
   websockets: boolean;
   xaiRouting: boolean;
   claudeCloak: boolean;
+  planCredential: boolean;
 };
 
 export type ParsedAuthFileConfigurationSource = {
@@ -298,6 +310,7 @@ export const getAuthFileConfigurationCapabilities = (
     websockets: providerKey === 'codex' || providerKey === 'xai',
     xaiRouting: providerKey === 'xai',
     claudeCloak: providerKey === 'claude',
+    planCredential: providerKey === 'qwen' || providerKey === 'opencode-go',
   };
 };
 
@@ -357,6 +370,12 @@ export const buildAuthFileConfigurationDraft = (
   const headers = readHeaders(record.headers);
   const usingApi = readBoolean(record.using_api ?? record.usingApi ?? record['using-api']);
   const rawBaseUrl = readTrimmedString(record.base_url ?? record.baseUrl ?? record['base-url']);
+  const planCredential = getAuthFileConfigurationCapabilities(provider).planCredential;
+  const displayBaseUrl = planCredential
+    ? redactPlanCredentialText(String(redactAuthFileConfigurationValue(rawBaseUrl, 'base_url')), [
+        readTrimmedString(record.api_key),
+      ])
+    : rawBaseUrl;
   const excludedModels = normalizeExcludedModels(
     record.excluded_models ?? record['excluded-models'] ?? record.excludedModels
   );
@@ -383,7 +402,14 @@ export const buildAuthFileConfigurationDraft = (
         ? rawBaseUrl || XAI_OFFICIAL_API_BASE_URL
         : providerKey === 'xai' && isXaiOfficialApiBaseUrl(rawBaseUrl)
           ? ''
-          : rawBaseUrl,
+          : displayBaseUrl,
+    alias: planCredential
+      ? redactPlanCredentialText(readTrimmedString(record.label), [
+          readTrimmedString(record.api_key),
+        ])
+      : '',
+    // A replacement is write-only; persisted keys never populate a form value.
+    apiKey: '',
     cloakMode: readTrimmedString(record.cloak_mode ?? record.cloakMode ?? record['cloak-mode']),
     cloakStrictMode: readBoolean(
       record.cloak_strict_mode ?? record.cloakStrictMode ?? record['cloak-strict-mode']
@@ -535,6 +561,44 @@ export const buildAuthFileConfigurationPatch = (
     patch.websockets = draft.websockets;
   }
 
+  const planFieldsChanged =
+    draft.alias.trim() !== originalDraft.alias.trim() ||
+    draft.apiKey.trim() !== originalDraft.apiKey.trim() ||
+    draft.baseUrl.trim() !== originalDraft.baseUrl.trim();
+  if (capabilities.planCredential && planFieldsChanged) {
+    const storedKey = readTrimmedString(record.api_key);
+    const replacementKey = draft.apiKey.trim();
+    const nextKey = replacementKey || storedKey;
+    if (!isValidPlanCredentialApiKey(nextKey)) {
+      errors.apiKey = 'accounts.config_error_plan_api_key';
+    } else if (replacementKey && replacementKey !== storedKey) {
+      patch.api_key = replacementKey;
+    }
+
+    const baseUrlChanged = draft.baseUrl.trim() !== originalDraft.baseUrl.trim();
+    // Display sanitization must never rewrite a persisted URL during an alias/key edit.
+    const requestedBaseUrl = baseUrlChanged
+      ? draft.baseUrl.trim()
+      : readTrimmedString(record.base_url ?? record.baseUrl ?? record['base-url']);
+    const nextBaseUrl = requestedBaseUrl || getPlanCredentialDefaultBaseUrl(provider);
+    if (!isValidPlanCredentialBaseUrl(nextBaseUrl) || (nextKey && nextBaseUrl.includes(nextKey))) {
+      errors.baseUrl = 'accounts.config_error_plan_base_url';
+    } else if (draft.baseUrl.trim() !== originalDraft.baseUrl.trim()) {
+      patch.base_url = nextBaseUrl;
+    }
+
+    const requestedAlias = draft.alias.trim();
+    if (requestedAlias !== originalDraft.alias.trim() || patch.api_key !== undefined) {
+      patch.label = requestedAlias
+        ? redactPlanCredentialText(requestedAlias, [storedKey, nextKey])
+        : maskPlanCredentialKey(nextKey);
+    }
+    // Explicit upstreams make uploaded labels authoritative in both plugins.
+    if (patch.label !== undefined || patch.api_key !== undefined) {
+      if (!errors.baseUrl) patch.base_url = nextBaseUrl;
+    }
+  }
+
   if (capabilities.xaiRouting) {
     const usingApi = draft.xaiRoutingMode === 'official-api';
     const originalUsingApi = originalDraft.xaiRoutingMode === 'official-api';
@@ -655,5 +719,16 @@ export const redactAuthFileConfigurationValue = (value: unknown, key = ''): unkn
   );
 };
 
-export const buildRedactedAuthFileConfigurationText = (record: Record<string, unknown>): string =>
-  JSON.stringify(redactAuthFileConfigurationValue(record), null, 2);
+export const buildRedactedAuthFileConfigurationText = (record: Record<string, unknown>): string => {
+  const redacted = redactAuthFileConfigurationValue(record);
+  const key = readTrimmedString(record.api_key);
+  const redactEchoes = (value: unknown): unknown => {
+    if (typeof value === 'string') return redactPlanCredentialText(value, [key]);
+    if (Array.isArray(value)) return value.map(redactEchoes);
+    if (!isRecordObject(value)) return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([name, item]) => [name, redactEchoes(item)])
+    );
+  };
+  return JSON.stringify(key ? redactEchoes(redacted) : redacted, null, 2);
+};

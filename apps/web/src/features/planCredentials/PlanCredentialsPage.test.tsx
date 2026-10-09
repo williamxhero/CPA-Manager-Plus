@@ -5,6 +5,20 @@ import { OAuthPage } from '@/features/oauth/OAuthPage';
 import type { PluginListEntry } from '@/types';
 import zhCN from '@/i18n/locales/zh-CN.json';
 import { PlanCredentialsPage } from './PlanCredentialsPage';
+import styles from '@/features/oauth/OAuthPage.module.scss';
+// Vitest stubs CSS modules. Load the rules without adding Node globals to the browser TS project.
+const { readFileSync } = await vi.importActual<{
+  readFileSync(path: URL, encoding: 'utf8'): string;
+}>('node:fs');
+const layoutSource = readFileSync(
+  new URL('../oauth/OAuthPage.module.scss', import.meta.url),
+  'utf8'
+);
+
+const defaultURLs = [
+  'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+  'https://opencode.ai/zen/go/v1',
+];
 
 const { mocks } = vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -160,7 +174,7 @@ afterEach(async () => {
 });
 
 describe('PlanCredentialsPage', () => {
-  it('renders one module per plan plugin with host field names, labels, placeholders and zh-CN title', async () => {
+  it('renders each host-backed module in Alias / Base URL / API Key / Add order with short localized labels', async () => {
     mocks.plugins.push(plugin('other-plugin', 'other'));
     await render();
     expect(renderer!.root.findAllByType('section')).toHaveLength(2);
@@ -183,12 +197,36 @@ describe('PlanCredentialsPage', () => {
           type: node.props.type,
           required: node.props.required,
         }));
-      expect(fields).toEqual(
-        metadata(id).fields.map((field) => ({
-          ...field,
-          type: field.name === 'api_key' ? 'password' : 'text',
-        }))
+      expect(fields).toEqual([
+        {
+          name: 'name',
+          label: '别名',
+          placeholder: '留空显示脱敏 API Key',
+          type: 'text',
+          required: false,
+        },
+        {
+          name: 'base_url',
+          label: 'Base URL',
+          placeholder: defaultURLs[index],
+          type: 'text',
+          required: false,
+        },
+        {
+          name: 'api_key',
+          label: 'API Key',
+          placeholder: undefined,
+          type: 'password',
+          required: true,
+        },
+      ]);
+      expect(fields.map((field) => field.name).sort()).toEqual(
+        metadata(id)
+          .fields.map((field) => field.name)
+          .sort()
       );
+      expect(section(index).findByType('form').props.className).toContain(styles.planCredentialRow);
+      expect(section(index).findByType('form').findAllByType(Input)).toHaveLength(3);
       expect(text(section(index).findByType('button'))).toBe('添加');
     }
     expect(mocks.start.mock.calls.map(([provider]) => provider)).toEqual(['qwen', 'opencode-go']);
@@ -213,20 +251,24 @@ describe('PlanCredentialsPage', () => {
               placeholder: node.props.placeholder,
             }))
         ).toEqual([
+          { name: 'name', label: '别名', placeholder: '留空显示脱敏 API Key' },
           { name: 'base_url', label: 'Base URL', placeholder },
           { name: 'api_key', label: 'API Key', placeholder: undefined },
-          { name: 'name', label: '别名 (Alias)', placeholder: '留空则显示脱敏 API Key' },
         ]);
-        expect(text(section(index).findByType('button'))).toBe('添加凭证');
+        expect(text(section(index).findByType('button'))).toBe('添加');
       }
     }
   );
 
   it.each([
-    ['missing Base URL', '', 'key', 'Base URL'],
-    ['missing API Key', 'https://valid.example', '  ', 'API Key'],
+    ['missing API Key', '', '  ', 'API Key'],
+    ['whitespace in API Key', '', 'secret key', 'API Key'],
     ['invalid Base URL', 'not-a-url', 'key', 'Base URL'],
     ['non-HTTP URL', 'javascript:alert(1)', 'key', 'Base URL'],
+    ['URL credentials', 'https://user:secret@host.test/v1', 'key', 'Base URL'],
+    ['URL query', 'https://host.test/v1?key=secret', 'key', 'Base URL'],
+    ['URL fragment', 'https://host.test/v1#secret', 'key', 'Base URL'],
+    ['API key embedded in URL', 'https://host.test/private-key/v1', 'private-key', 'Base URL'],
   ])('validates %s locally without posting', async (_case, baseURL, key, field) => {
     await render();
     await fill('base_url', baseURL);
@@ -269,6 +311,94 @@ describe('PlanCredentialsPage', () => {
       expect(section(1 - index).findAllByProps({ role: 'status' })).toHaveLength(0);
     }
   );
+
+  it.each(ids)(
+    'posts an explicit default URL when %s URL is blank or whitespace, despite required host metadata',
+    async (id) => {
+      const index = ids.indexOf(id);
+      await render();
+      await fill('base_url', index === 0 ? '' : '   ', index);
+      await fill('api_key', 'test-secret-key', index);
+      await submit(index);
+      expect(mocks.submit).toHaveBeenCalledWith(
+        id,
+        metadata(id).submit_path,
+        { name: '', base_url: defaultURLs[index], api_key: 'test-secret-key' },
+        { apiBase: mocks.apiBase, managementKey: mocks.managementKey }
+      );
+    }
+  );
+
+  it.each(ids)('uses the provider default for %s without metadata too', async (id) => {
+    mocks.start.mockResolvedValue({});
+    const index = ids.indexOf(id);
+    await render();
+    await fill('api_key', 'test-secret-key', index);
+    await submit(index);
+    expect(mocks.submit.mock.calls[0][2].base_url).toBe(defaultURLs[index]);
+  });
+
+  it('keeps the Add action after all fields and wraps only the plan row on narrow layouts', async () => {
+    await render();
+    const row = section().findByType('form');
+    expect(
+      row.children
+        .filter((node) => typeof node !== 'string')
+        .map(
+          (node) =>
+            (node as ReactTestInstance).props.name || (node as ReactTestInstance).props.className
+        )
+    ).toEqual(['name', 'base_url', 'api_key', styles.callbackActions]);
+    const rowStyles = layoutSource.slice(
+      layoutSource.indexOf('.planCredentialRow'),
+      layoutSource.indexOf('.cardHint')
+    );
+    expect(rowStyles).toContain('flex-direction: row');
+    expect(rowStyles).toContain('flex-wrap: wrap');
+    expect(rowStyles).toContain('min-width: 0');
+    expect(rowStyles).toContain('flex-basis: 100%');
+  });
+
+  it.each(ids)(
+    'never exposes the %s API key in text, title, aria, errors or toasts',
+    async (id) => {
+      const index = ids.indexOf(id);
+      const secret = 'unique-test-key-not-real';
+      mocks.submit.mockRejectedValue(
+        Object.assign(new Error(`duplicate ${secret}`), { status: 409 })
+      );
+      await render();
+      await fill('api_key', secret, index);
+      const input = section(index)
+        .findAllByType('input')
+        .find((node) => node.props.name === 'api_key')!;
+      expect(input.props.type).toBe('password');
+      expect(input.props.autoComplete).toBe('new-password');
+      for (const node of section(index).findAll(() => true)) {
+        for (const [key, value] of Object.entries(node.props)) {
+          if (key === 'title' || key.startsWith('aria-'))
+            expect(String(value)).not.toContain(secret);
+        }
+      }
+      await submit(index);
+      expect(text(renderer!.root)).not.toContain(secret);
+      expect(text(section(index).findByProps({ role: 'alert' }))).toBe(
+        '凭证已存在: duplicate [redacted]'
+      );
+      expect(mocks.notify).toHaveBeenCalledWith('凭证已存在: duplicate [redacted]', 'error');
+    }
+  );
+
+  it.each(ids)('redacts a raw key returned as the %s success label', async (id) => {
+    const index = ids.indexOf(id);
+    mocks.submit.mockResolvedValue({ label: 'test-secret-key' });
+    await render();
+    await valid(index);
+    await submit(index);
+    expect(text(section(index).findByProps({ role: 'status' }))).toBe('凭证添加成功: [redacted]');
+    expect(text(renderer!.root)).not.toContain('test-secret-key');
+    expect(mocks.notify).toHaveBeenCalledWith('凭证添加成功', 'success');
+  });
 
   it('uses the returned masked-key label when alias is blank, without displaying the raw key', async () => {
     mocks.submit.mockResolvedValue({ ok: true, id: 'credential-2', label: 'sk-***1234' });

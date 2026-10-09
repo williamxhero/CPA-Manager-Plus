@@ -4,6 +4,8 @@ import { Input } from '@/components/ui/Input';
 import type { PluginListEntry } from '@/types';
 import { OAuthPage } from './OAuthPage';
 import { PlanCredentialsPage } from '@/features/planCredentials/PlanCredentialsPage';
+import zhCN from '@/i18n/locales/zh-CN.json';
+import styles from './OAuthPage.module.scss';
 import {
   getPluginCredentialFormFallback,
   readPluginCredentialForm,
@@ -26,7 +28,10 @@ const { mocks } = vi.hoisted(() => {
   };
 });
 vi.mock('react-i18next', () => {
-  const t = (key: string) => (key === 'plan_credentials.success' ? '凭证添加成功' : key);
+  const t = (key: string) =>
+    key.startsWith('plan_credentials.')
+      ? ((zhCN.plan_credentials as Record<string, string>)[key.split('.')[1]] ?? key)
+      : key;
   return {
     initReactI18next: { type: '3rdParty', init: () => undefined },
     useTranslation: () => ({ t }),
@@ -175,6 +180,13 @@ describe('plugin manual credentials', () => {
       { name: 'token', type: 'password', required: false },
     ]);
     expect(findButton(renderer, '保存凭证')).toBeDefined();
+    expect(renderer.root.findByType('form').props.className).toBe(styles.cardContent);
+    expect(renderer.root.findByType('form').props.className).not.toContain(
+      styles.planCredentialRow
+    );
+    expect(
+      renderer.root.findAllByType(Input).find((node) => node.props.name === 'name')?.props.label
+    ).toBe('凭证名称');
     expect(text(renderer.root)).toContain('Plugin-provided long title');
     expect(
       renderer.root
@@ -269,11 +281,11 @@ describe('plugin manual credentials', () => {
     ];
     await render(<PlanCredentialsPage />);
     expect(renderer.root.findAllByType('form')).toHaveLength(2);
-    expect(findButton(renderer, '添加凭证').props.disabled).toBe(true);
+    expect(findButton(renderer, '添加').props.disabled).toBe(true);
     await act(async () => {
       resolve({ url: 'https://plugin.example/login' });
     });
-    expect(findButton(renderer, '添加凭证').props.disabled).toBe(false);
+    expect(findButton(renderer, '添加').props.disabled).toBe(false);
   });
 
   it('uses only the exact plugin-id fallback when login metadata is absent', async () => {
@@ -283,13 +295,13 @@ describe('plugin manual credentials', () => {
       state: 'unused-state',
     });
     await render(<PlanCredentialsPage />);
-    expect(findButton(renderer, '添加凭证')).toBeDefined();
+    expect(findButton(renderer, '添加')).toBeDefined();
     expect(
       renderer.root
         .findAllByType(Input)
         .filter((node) => node.props.name)
         .map((node) => node.props.name)
-    ).toEqual(['base_url', 'api_key', 'name']);
+    ).toEqual(['name', 'base_url', 'api_key']);
     expect(window.setInterval).not.toHaveBeenCalled();
     expect(getPluginCredentialFormFallback('opencode-go')).toBeUndefined();
     expect(getPluginCredentialFormFallback('qwen')).toBeUndefined();
@@ -305,14 +317,26 @@ describe('plugin manual credentials', () => {
       },
     });
     await render(<PlanCredentialsPage />);
-    expect(findButton(renderer, '保存凭证')).toBeDefined();
+    expect(findButton(renderer, '添加')).toBeDefined();
+    await fill('api_key', 'test-key');
+    await submit();
+    expect(mocks.submit).toHaveBeenCalledWith(
+      'qwen-cliproxyapi',
+      '/v0/management/plugins/qwen-cliproxyapi/alternate',
+      {
+        name: '',
+        base_url: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+        api_key: 'test-key',
+      },
+      { apiBase: mocks.apiBase, managementKey: mocks.managementKey }
+    );
   });
 
   it('retains fallback if an older host rejects the metadata probe', async () => {
     mocks.plugins = [plugin('qwen-cliproxyapi', 'qwen')];
     mocks.startAuth.mockRejectedValue(new Error('unsupported'));
     await render(<PlanCredentialsPage />);
-    expect(findButton(renderer, '添加凭证')).toBeDefined();
+    expect(findButton(renderer, '添加')).toBeDefined();
   });
 
   it('keeps non-manual plugins and all built-in login buttons and polling untouched', async () => {
@@ -374,6 +398,35 @@ describe('plugin manual credentials', () => {
     expect(mocks.publish).not.toHaveBeenCalled();
     expect(mocks.notify).not.toHaveBeenCalled();
   });
+
+  it.each(['qwen-cliproxyapi', 'opencode-go-cliproxyapi'])(
+    'orders only plan metadata for %s while preserving its exact declared field set',
+    (id) => {
+      const host = { ...metadata, submit_path: `/v0/management/plugins/${id}/alternate` };
+      const form = readPluginCredentialForm(id, host)!;
+      expect(form.fields.map((field) => field.name)).toEqual([
+        'name',
+        'base_url',
+        'api_key',
+        'token',
+      ]);
+      expect(form.fields.map((field) => field.name).sort()).toEqual(
+        host.fields.map((field) => field.name).sort()
+      );
+      expect(form.submitPath).toBe(host.submit_path);
+      expect(form.submitLabel).toBe(host.submit_label);
+      expect(form.fields.find((field) => field.name === 'base_url')?.required).toBe(false);
+      expect(form.fields.find((field) => field.name === 'api_key')?.type).toBe('password');
+      const unchanged = readPluginCredentialForm('manual-plugin', metadata)!;
+      expect(unchanged.fields.map((field) => field.name)).toEqual([
+        'base_url',
+        'api_key',
+        'name',
+        'token',
+      ]);
+      expect(unchanged.fields[0]).toEqual({ ...metadata.fields[0], type: 'text' });
+    }
+  );
 
   it('defaults the submit label and rejects unsafe metadata destinations and duplicate fields', () => {
     expect(
