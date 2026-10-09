@@ -59,7 +59,7 @@
       "displayName": "OpenCode Go CLIProxyAPI plugin",
       "pluginId": "opencode-go-cliproxyapi",
       "importStrategy": "git-subtree",
-      "status": "planned",
+      "status": "imported",
       "sourceRepo": "massiveits/opencode-go-cliproxyapi",
       "sourceBranch": "main",
       "remote": {
@@ -70,9 +70,12 @@
       "firstImportCommand": "git subtree add --prefix=providers/opencode-go opencode-upstream main --squash",
       "syncCommand": "git subtree pull --prefix=providers/opencode-go opencode-upstream main --squash",
       "sourceDecision": {
-        "status": "deferred",
+        "status": "decided",
         "owner": "SPEC5-B",
-        "note": "上游 massiveits/opencode-go-cliproxyapi 干净但落后本地 fork williamxhero/opencode-go-cliproxyapi-ex 17 个定制提交；SPEC5-B 决定导入源（上游 + 重新套用定制，或 fork 树 + 排除构建产物）。契约只固定目录、排除清单与同步命令形态。"
+        "importedAt": "2026-10-09",
+        "upstreamBase": "massiveits/opencode-go-cliproxyapi@a4369b9b1cf18a4111a0167e3b50e5d69054fe45",
+        "customizationSource": "williamxhero/opencode-go-cliproxyapi-ex@f88846cc75e1318a07882a43733830842b079d2d (17 commits ahead of upstream, 0 behind)",
+        "note": "SPEC5-B 定案：导入源 = 上游 massiveits/opencode-go-cliproxyapi（branch main）作 git subtree 基（--squash），随后在其上以本地提交重新套用本地 fork 的 17 个定制（凭证/额度/目录适配）。选择「上游作基 + 重新套用定制」而非「直接 subtree add fork 树」：实测直接 add fork 后 pull 上游会因 base=fork 而回退全部定制（隔离仓库验证）。上游因此仍是唯一 sync 源，定制以本地叠加提交保留，未来同步冲突须手动解决并测试，不得强行覆盖。构建/工作区垃圾（plugins/**、worker*、prompt8-credential-route.md）在导入提交中排除。"
       },
       "preserveCustomizations": [
         "d41f0a24 Use CLIProxyAPI v8 native quotas and readable OpenCode Go accounts",
@@ -112,7 +115,23 @@
         "**/dist/**"
       ],
       "requiredFiles": ["LICENSE", "go.mod", "main.go"],
-      "contentAllowlist": []
+      "contentAllowlist": [
+        {
+          "glob": "internal/errclass/errclass_test.go",
+          "patternId": "openai-key",
+          "reason": "测试夹具：错误消息脱敏用例中的 sk- 占位符，非真实凭据（SPEC5-B 已逐行核对）"
+        },
+        {
+          "glob": "internal/plugin/executor_test.go",
+          "patternId": "openai-key",
+          "reason": "测试夹具：TestExecuteUsesSelectedAuthKey* 用的 sk-cpa- 占位符，非真实凭据"
+        },
+        {
+          "glob": "internal/plugin/mask_test.go",
+          "patternId": "openai-key",
+          "reason": "测试夹具：maskAPIKey/fileNameAlias 脱敏用例的 sk-oc- 占位符，非真实凭据"
+        }
+      ]
     },
     {
       "id": "qwen",
