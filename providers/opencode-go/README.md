@@ -4,6 +4,10 @@ A native dynamic Go plugin for [CLIProxyAPI](https://help.router-for.me/plugin/d
 
 The plugin unifies model discovery, protocol translation, and execution across OpenCode Go's upstream endpoints while leveraging CLIProxyAPI's built-in authentication, scheduling, keys rotation, and cooldown management.
 
+## Credential naming
+
+The panel shows a credential's **label**: an **alias** wins (the optional `别名 (Alias)` field, or a config `api-keys` entry's `name`); with no alias the label is the **API key masked as `first4...last4`** (e.g. `sk-o...9abc`; short keys are masked harder). Labels this plugin generated itself (`OpenCode Go`, `OpenCode Go 2`, `OpenCode Go credential ab12…`) are replaced by the mask on the next materialisation, while a label you chose by hand is preserved. Auth **file names** never carry key fragments — a credential without an alias is filed as `OpenCode-Go.json`.
+
 ## The Problem
 
 OpenCode Go exposes models across multiple API protocols (OpenAI Chat Completions `/v1/chat/completions`, Anthropic Messages `/v1/messages`, and OpenAI Responses `/v1/responses`).
@@ -31,12 +35,12 @@ This plugin exposes OpenCode Go as a single provider (`opencode-go`) backed by a
 - **Thinking & Reasoning Support**: Maps reasoning effort across supported client and upstream formats.
 - **Dynamic Catalog Discovery**: Fetches remote model catalogs with local fallback and custom route overrides.
 - **Multi-Key Auth Scheduling**: Pools multiple API keys with CLIProxyAPI's native scheduler for rotation, retries, and error cooldowns across all protocols.
-- **OpenCode Go Quota Page**: Management Center includes a separate `OpenCode Go Quota` page. Page load lists credentials without contacting OpenCode; each card is refreshed manually and independently, and quota values do not affect routing or CPA's native quota page.
+- **Native quotas**: Rolling, weekly, and monthly quotas use CLIProxyAPI’s generic quota endpoints and the selected credential. A compatibility resource page is also exposed for older Management Center builds.
 
 ## Requirements
 
-- **CLIProxyAPI**: `v7.2.138+`
-- **Go Toolchain**: Go 1.24+ (with CGO enabled for C-shared build mode)
+- **CLIProxyAPI**: `v8.0.0+`
+- **Go Toolchain**: Go 1.26.7+ (with CGO enabled for C-shared build mode)
 
 ## Build
 
@@ -81,6 +85,7 @@ plugins:
       # OpenCode Go API keys (at least one required). Supports ${ENV_VAR} expansion.
       api-keys:
         - value: "sk-opencode-key-1"
+          name: "Personal"      # optional account label
         - value: "sk-opencode-key-2"
         - value: "${OPENCODE_GO_API_KEY}"
 
@@ -111,7 +116,7 @@ plugins:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `api-keys` | `[]object` | *(Required)* | List of API keys (`- value: "..."`). Supports `${ENV_VAR}` expansion. Duplicates and empty values are rejected. |
+| `api-keys` | `[]object` | *(Required)* | List of API keys (`- value: "..."`, optional `name: "Personal"`). Supports `${ENV_VAR}` expansion. Duplicates and empty values are rejected. |
 | `base-url` | `string` | `https://opencode.ai/zen/go/v1` | Upstream base URL. Must be valid HTTPS (or HTTP if `allow-http: true`) without query parameters, fragments, or userinfo. |
 | `catalog-url` | `string` | `{base-url}/models` | Full URL for catalog discovery. Defaults to `{base-url}/models`. |
 | `model-prefix.enabled` | `bool` | `true` | When `true`, client-facing model names use `<prefix>/<model>`. When `false`, uses bare model IDs. |
@@ -126,6 +131,28 @@ plugins:
 | `max-response-bytes` | `int64` | `67108864` (64 MiB) | Maximum non-streaming response body size in bytes. |
 | `allow-http` | `bool` | `false` | When `true`, permits `http://` scheme in `base-url` / `catalog-url` for local testing. |
 
+### Keeping the model list aligned with OpenCode Go
+
+The plugin replaces its `opencode-go` catalog with the latest successful
+response from OpenCode Go. Models removed upstream therefore disappear from
+the next successful refresh. The refresh interval is configurable, with a
+minimum of one minute.
+
+For a strict mirror, use a short interval and fail closed during an outage:
+
+```yaml
+catalog:
+  refresh-interval: "1m"
+  stale-while-unavailable: false
+```
+
+`stale-while-unavailable: true` is safer during a transient outage, but it
+intentionally keeps the last successful model list until the next refresh.
+Models whose upstream protocol is not known to the plugin are retained in
+refresh diagnostics and excluded from `opencode-go` models. Add a
+`route-overrides` entry only when the upstream protocol is confirmed; the
+plugin does not guess a route for an unknown model.
+
 ## Testing
 
 ```powershell
@@ -138,3 +165,55 @@ go test ./... -cover
 # Run linter / vetting
 go vet ./...
 ```
+
+## Adding credentials from a management form
+
+With the plugin enabled, submit a management-authenticated request to
+`POST /v0/management/plugins/opencode-go-cliproxyapi/credentials`:
+
+```json
+{"base_url":"https://opencode.ai/zen/go/v1","api_key":"oc_sk_dummy_example","name":"Personal"}
+```
+
+The response is `{"ok":true,"id":"opencode-go-key-<hash>","label":"Personal"}`.
+`base_url` and a non-empty `api_key` are required; `name` defaults to **OpenCode Go**.
+Unknown fields are ignored. URLs must use HTTPS (HTTP requires `allow-http: true`)
+and contain a host, with no userinfo, query, or fragment. The key is never returned.
+A duplicate key plus normalized base URL returns HTTP 409. Invalid input returns
+400; unavailable host credential support returns 503; host inspection/save errors
+return 502 with redacted reasons.
+
+Credentials are persisted through the host auth API as provider `opencode-go`,
+with the supplied label and their own `base_url`. Execution prefers selected auth
+attributes, then stored credential JSON, then the configured `base-url`; quota
+fetches also use the credential URL. Legacy configured quota `key_id` values are
+unchanged, and form credentials are included in the compatibility quota list.
+Form credential filenames use the returned hash ID plus `.json`.
+
+At least one configured `api-keys` entry is still required for plugin startup and
+catalog discovery; form credentials do not change the global model catalog.
+The host's current save callback is not transactional and exposes no rollback
+API: host-side disk/upsert failures may leave a partial file. The plugin publishes
+no local credential state on failure and waits for the save result rather than
+returning a timeout while a mutating callback continues.
+
+## Account names and quotas
+
+Set an optional `name` on each `api-keys` entry, alongside `value`.
+For example, use `name: Personal` or `name: Work`. Without a name, one key
+uses **OpenCode Go**; multiple keys use **OpenCode Go 1**, **OpenCode Go 2**, and subsequent numbers.
+Default numbers follow configuration order. Explicit names remain stable when keys are reordered.
+The usage response contains no email or account identity. The plugin does not infer an email from a key.
+
+Configured credential files have readable names. Existing auth IDs remain unchanged, and
+legacy generated labels are replaced when parsed. Existing custom labels are preserved
+unless configuration specifies a name. Existing filenames are retained automatically;
+stop CLIProxyAPI before renaming an old file to a readable `.json` filename, and keep
+its JSON `id` and all other fields unchanged. Back up the file first.
+
+Discover support with `GET /v0/management/quota/providers`, then call
+`POST /v0/management/quota/fetch` with `{"auth_index":"<selected index>"}`.
+These endpoints require the CLIProxyAPI management key. The normalized response contains
+`subscription.plan`, `groups[].buckets[].window`, `remainingFraction`, and `resetTime`.
+Missing windows are omitted. Invalid readings return an error, not an invented zero.
+Quota reset is unsupported. For older Management Center builds, the plugin also exposes a compatibility quota resource page backed by the same native quota provider.

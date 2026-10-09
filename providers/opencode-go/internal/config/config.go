@@ -28,6 +28,7 @@ type ModelPrefix struct {
 }
 
 type APIKey struct {
+	Name  string
 	Value string
 }
 
@@ -82,6 +83,7 @@ type rawPrefix struct {
 }
 
 type rawKey struct {
+	Name  string `yaml:"name"`
 	Value string `yaml:"value"`
 }
 
@@ -114,7 +116,7 @@ func Load(yamlBytes []byte) (Config, error) {
 	}
 	keys := make([]APIKey, len(raw.APIKeys))
 	for i, k := range raw.APIKeys {
-		keys[i] = APIKey{Value: os.ExpandEnv(k.Value)}
+		keys[i] = APIKey{Value: os.ExpandEnv(k.Value), Name: strings.TrimSpace(k.Name)}
 	}
 	refreshInterval, err := parseDuration("catalog.refresh-interval", raw.Catalog.RefreshInterval, DefaultRefreshInterval)
 	if err != nil {
@@ -214,6 +216,11 @@ func (c Config) validate() error {
 	return nil
 }
 
+// ValidateCredentialBaseURL applies the same URL policy as plugin configuration.
+func ValidateCredentialBaseURL(raw string, allowHTTP bool) error {
+	return validateURL("base_url", raw, allowHTTP)
+}
+
 func validateURL(name, raw string, allowHTTP bool) error {
 	if raw == "" {
 		return fmt.Errorf("%s: must not be empty", name)
@@ -222,12 +229,12 @@ func validateURL(name, raw string, allowHTTP bool) error {
 	if err != nil {
 		return fmt.Errorf("%s: invalid URL", name)
 	}
-	if u.Scheme == "" || u.Host == "" {
+	if u.Scheme == "" || u.Hostname() == "" {
 		// Echo only scheme://host — the configured string may embed
 		// userinfo credentials (https://user:key@host).
 		return fmt.Errorf("%s: invalid URL %s://%s", name, u.Scheme, u.Host)
 	}
-	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+	if u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") || u.User != nil {
 		return fmt.Errorf("%s: must not contain query, fragment, or userinfo", name)
 	}
 	// Scheme allowlist (spec 05 §2): https always; http only behind

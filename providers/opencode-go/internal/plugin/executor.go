@@ -17,8 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 
 	"opencode-go-cliproxyapi/internal/adapter/chatcompletions"
 	"opencode-go-cliproxyapi/internal/adapter/messages"
@@ -63,6 +63,11 @@ func (m *Manager) resolveExecution(req executorRequest) (*resolvedExecution, []b
 	if key == "" {
 		return nil, classEnvelope(&errclass.Error{Class: errclass.ClassAuth, Message: "selected auth has no api key"})
 	}
+	baseURL, err := credentialBaseURL(req.AuthAttributes, req.StorageJSON, cfg)
+	if err != nil {
+		return nil, classEnvelope(&errclass.Error{Class: errclass.ClassAuth, Message: err.Error()})
+	}
+	cfg.BaseURL = baseURL
 	var rec catalog.ModelRecord
 	var found bool
 	if mgr != nil && req.Model != "" {
