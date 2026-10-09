@@ -28,7 +28,7 @@
 | 8 | Qwen 额度 + 凭证卡渲染 | 新增功能 | web `utils/quota/qwenQuota.ts`、`features/accounts/model/accountQuota*`、`accountSubscriptionPresentation.ts` | 无 | 保留 | 上游覆盖时替换 | 无 | 单测 + 凭证卡页面 | 已实现（fork 主线） |
 | 9 | 受保护的计划凭证编辑 | 新增功能 | web `services/api/authFiles.ts`（plan configuration）、`features/authFiles/hooks/useAuthFileConfigurationEditor.ts`、`accounts/components/accountDetail/AccountConfigurationTab.tsx`；`docs/plan-credential-editing.zh-CN.md` | 无 | 保留 | 上游覆盖时替换 | 无 | 单测 | 已实现（fork 主线） |
 | 10 | provider source 解析改造 | 兼容修复 | web `utils/sourceResolver.ts`、`monitoring/model/sourceDisplay.ts`、`realtimeSourceDisplay.ts` 等 | 无 | 保留 | 上游覆盖时替换 | 无 | 单测 | 已实现（fork 主线） |
-| 11 | CPAMP EX 品牌角标 + 主题 provider 图标 + 添加页改名 | 品牌偏好 | 品牌资产 `apps/web/src/assets/brand/*`（15 SVG + 15 PNG 全部加 EX 角标）、`apps/web/public/favicon.ico`、`apple-touch-icon.png` 及 manager-server 内嵌副本、`apps/web/index.html` 内联回退；provider 图标 `apps/web/src/assets/icons/opencode-{light,dark}.png` + `features/authFiles/constants.ts`；文案 `i18n/locales/*`、`features/plugins/planPlugins.ts`、`features/planCredentials/PlanCredentialsPage.tsx` | 无（fork 品牌偏好） | 保留；EX 仅加于 CPAMP 自有资产，**不加**第三方 provider 标志 | 上游若提供官方品牌变体，按需替换但保留 EX 语义 | 无 | `tests/cpampExBranding.test.mjs`、`repoSourceIntegrity.test.mjs`、`constants.test.ts`、`PlanCredentialsPage.test.tsx`、`planCredentialsWiring.test.ts` | 本 PR 实现（`claude/ex-branding`），**未合并/未部署** |
+| 11 | CPAMP EX 品牌角标 + 主题 provider 图标 + 添加页改名 | 品牌偏好 | 品牌资产 `apps/web/src/assets/brand/*`（15 SVG + 15 PNG 全部加 EX 角标）、`apps/web/public/favicon.ico`、`apple-touch-icon.png` 及 manager-server 内嵌副本、`apps/web/index.html` 内联回退；生成脚本 `bin/branding/generate-cpamp-ex-assets.py`（见「品牌资产生成」）；provider 图标 `apps/web/src/assets/icons/opencode-{light,dark}.png` + `features/authFiles/constants.ts`；文案 `i18n/locales/*`、`features/plugins/planPlugins.ts`、`features/planCredentials/PlanCredentialsPage.tsx` | 无（fork 品牌偏好） | 保留；EX 仅加于 CPAMP 自有资产，**不加**第三方 provider 标志 | 上游若提供官方品牌变体，按需替换但保留 EX 语义 | 无 | `tests/cpampExBranding.test.mjs`、`repoSourceIntegrity.test.mjs`、`constants.test.ts`、`PlanCredentialsPage.test.tsx`、`planCredentialsWiring.test.ts` | 本 PR 实现（`claude/ex-branding`），**未合并/未部署** |
 
 ## 上游合并检查表
 
@@ -42,6 +42,25 @@
 
 > 上游已覆盖、且通过本 fork 验收的能力：移除重复实现，保留有价值的回归测试。
 > **不得**无条件 `ours`/`theirs` 合并。
+
+## 品牌资产生成（EX 角标）
+
+品牌资产的 EX 角标由脚本统一生成，**committed 资产是脚本输出，不手工编辑**。
+
+- 生成脚本：`bin/branding/generate-cpamp-ex-assets.py`
+- 依赖：Python 3.8+ 与 Pillow（`pip install Pillow`）；读取 git 源时另需 `git`。
+- 源：`--source-ref`（默认 `DEFAULT_SOURCE_REF`，即角标落地前的最后一个提交）里的
+  **未加角标** 资产。每次运行都从干净源重建，因此**不会累加/叠印**角标。
+- 产出（35 项）：15 品牌 SVG + 15 品牌 PNG + `apps/web/public/favicon.ico` +
+  `apple-touch-icon.png`（各自与 manager-server 内嵌副本逐字节一致），并重算
+  `apps/web/index.html` 的三处内联 base64 回退。
+- 幂等校验：`python bin/branding/generate-cpamp-ex-assets.py --check`
+  （重建到内存后与工作树逐字节比较，漂移即非零退出）。
+- 16px favicon 帧：抗锯齿的 Arial「EX」在 16px 会糊成一片，故 16px 帧改用定制
+  像素字形——3×5 的 `E` + 1px 间隙 + 3×5 的 `X`（7×5 白色像素，蓝底，1px 留白），
+  只落在右下角（9×7，占比 < 半幅，不遮主体）。32/48 帧保持原可读构图。
+- 回归守卫：`tests/cpampExBranding.test.mjs` 直接解码 ICO 内 16px 帧的 PNG 像素，
+  断言字形逐像素（白色 20 个：E 11 + X 9），而非匹配标记字符串。
 
 ## 面向用户链接切 fork（SPEC #6）
 

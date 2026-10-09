@@ -94,4 +94,12 @@ describe('plan credentials app wiring', () => {
     expect(getPlanCredentials(en)?.title).toBe('Add credentials');
     expect(getPlanCredentials(zhTW)?.title).toBe('新增憑證');
   });
+
+  it.each(Object.entries(locales))(
+    'labels the opencode-go provider tab as "OpenCode Go" in every locale: %s',
+    (name, locale) => {
+      const authFiles = (locale as { auth_files: Record<string, string> }).auth_files;
+      expect(authFiles['filter_opencode-go'], name).toBe('OpenCode Go');
+    }
+  );
 });
