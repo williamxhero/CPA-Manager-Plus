@@ -147,13 +147,23 @@ describe('provider import boundary contract', () => {
     expect(validateManifest(loadManifest(repoRoot))).toEqual([]);
   });
 
-  it('passes on the current repository while providers are not yet imported', () => {
+  it('passes on the current repository (opencode-go imported, qwen not yet)', () => {
     const { ok, findings, info } = runBoundaryCheck({ root: repoRoot });
 
     expect(findings).toEqual([]);
     expect(ok).toBe(true);
-    expect(info.some((line) => line.includes('opencode-go not imported yet'))).toBe(true);
+    // SPEC5-B imported the OpenCode Go subtree; its real tree must satisfy the boundary.
+    expect(info.some((line) => line.includes('provider opencode-go present'))).toBe(true);
     expect(info.some((line) => line.includes('qwen not imported yet'))).toBe(true);
+  });
+
+  it('reports opencode-go as imported and qwen as still planned in the committed manifest', () => {
+    const manifest = loadManifest(repoRoot);
+    const byId = Object.fromEntries(manifest.providers.map((provider) => [provider.id, provider]));
+
+    expect(byId['opencode-go'].status).toBe('imported');
+    expect(byId['opencode-go'].sourceDecision.status).toBe('decided');
+    expect(byId.qwen.status).toBe('planned');
   });
 
   it('treats a planned provider with no directory as not-yet-imported', () => {

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // SPEC5-A: enforce the CPAMP single-repo providers layout, licence and import boundary.
 //
 // Contract source of truth: providers/import-boundary.json
