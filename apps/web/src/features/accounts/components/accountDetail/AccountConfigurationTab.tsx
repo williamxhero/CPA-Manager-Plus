@@ -17,6 +17,7 @@ import {
   type AuthFileConfigurationErrorKey,
   type XaiRoutingMode,
 } from '@/features/authFiles/model/authFileConfiguration';
+import { getPlanCredentialDefaultBaseUrl } from '@/utils/planCredentials';
 import styles from '@/features/accounts/AccountsPage.module.scss';
 
 type AccountConfigurationTabProps = {
@@ -160,6 +161,44 @@ export function AccountConfigurationTab({
         <div className={styles.configurationReadOnlyNotice} role="note">
           {t('accounts.config_shared_source_read_only', { count: sourceMemberCount })}
         </div>
+      ) : null}
+
+      {capabilities.planCredential ? (
+        <section className={styles.configurationSection}>
+          <h3 className={styles.configurationSectionTitle}>
+            {t('accounts.config_section_provider', { provider: providerLabel })}
+          </h3>
+          <div className={styles.configurationFieldGrid}>
+            <Input
+              label={t('plan_credentials.alias_label')}
+              value={draft.alias}
+              hint={t('accounts.config_plan_alias_hint')}
+              disabled={disabled}
+              onChange={(event) => editor.updateField('alias', event.target.value)}
+            />
+            <Input
+              label={t('plan_credentials.base_url_label')}
+              value={draft.baseUrl}
+              placeholder={getPlanCredentialDefaultBaseUrl(state.providerKey)}
+              hint={t('accounts.config_plan_base_url_hint')}
+              error={fieldError('baseUrl')}
+              disabled={disabled}
+              onChange={(event) => editor.updateField('baseUrl', event.target.value)}
+            />
+            <div className={styles.configurationFieldFull}>
+              <Input
+                label={t('plan_credentials.api_key_label')}
+                type="password"
+                autoComplete="new-password"
+                value={draft.apiKey}
+                hint={t('accounts.config_plan_key_hint')}
+                error={fieldError('apiKey')}
+                disabled={disabled}
+                onChange={(event) => editor.updateField('apiKey', event.target.value)}
+              />
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <section className={styles.configurationSection}>

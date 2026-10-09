@@ -14,6 +14,7 @@ import {
   buildAuthFileConfigurationDraft,
   buildAuthFileConfigurationPatch,
   buildRedactedAuthFileConfigurationText,
+  getAuthFileConfigurationCapabilities,
   parseAuthFileConfigurationSource,
   type AuthFileConfigurationDraft,
   type AuthFileConfigurationErrors,
@@ -101,6 +102,10 @@ export function useAuthFileConfigurationEditor(
   const showNotification = useNotificationStore((store) => store.showNotification);
   const fileRef = useRef(file);
   fileRef.current = file;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const disableControlsRef = useRef(disableControls);
+  disableControlsRef.current = disableControls;
   const normalizedConnectionKey = String(connectionKey ?? '');
   const connectionKeyRef = useRef(normalizedConnectionKey);
   connectionKeyRef.current = normalizedConnectionKey;
@@ -125,6 +130,14 @@ export function useAuthFileConfigurationEditor(
         }
         if (error.message === AUTH_FILE_CONFIGURATION_TARGET_NOT_FOUND) {
           return t('accounts.config_error_target_not_found');
+        }
+        const targetFile = fileRef.current;
+        if (
+          getAuthFileConfigurationCapabilities(
+            String(targetFile?.provider ?? targetFile?.type ?? '')
+          ).planCredential
+        ) {
+          return t('notification.download_failed');
         }
         if (error.message.trim()) return error.message;
       }
@@ -288,9 +301,15 @@ export function useAuthFileConfigurationEditor(
     const providerKeySnapshot = state.providerKey;
     const recordSnapshot = state.record;
     const patch = patchResult.patch;
+    const planCredential = getAuthFileConfigurationCapabilities(providerKeySnapshot).planCredential;
+    const updatingPlanCredential =
+      planCredential &&
+      (patch.label !== undefined || patch.api_key !== undefined || patch.base_url !== undefined);
     const isCurrentTarget = () => {
       const currentFile = fileRef.current;
       return Boolean(
+        enabledRef.current &&
+        !disableControlsRef.current &&
         requestIdRef.current === requestIdSnapshot &&
         connectionKeyRef.current === normalizedConnectionKey &&
         currentFile &&
@@ -331,7 +350,20 @@ export function useAuthFileConfigurationEditor(
       const sourceIdentities = currentFiles
         .filter((entry) => readAuthFileStatusPhysicalName(entry) === targetPhysicalName)
         .map(getAuthFilePatchTarget);
-      if (patch['excluded-models'] !== undefined && hasLegacyExcludedModelsAlias(recordSnapshot)) {
+      let verifiedPlanRecord: Record<string, unknown> | null = null;
+      if (updatingPlanCredential) {
+        verifiedPlanRecord = await authFilesApi.savePlanCredentialConfiguration(
+          patchTarget,
+          sourceIdentities,
+          patch,
+          recordSnapshot,
+          requestScope,
+          isCurrentTarget
+        );
+      } else if (
+        patch['excluded-models'] !== undefined &&
+        hasLegacyExcludedModelsAlias(recordSnapshot)
+      ) {
         // CPA currently reads `excluded_models` before `excluded-models` and
         // treats PATCH null values as retained metadata keys. Rewrite the
         // verified source JSON so the legacy key is actually removed; this
@@ -371,28 +403,59 @@ export function useAuthFileConfigurationEditor(
       }
       if (!isCurrentTarget()) return;
 
-      let nextRecord = applyAuthFileFieldsPatchToRecord(recordSnapshot, patch);
+      let nextRecord =
+        verifiedPlanRecord ?? applyAuthFileFieldsPatchToRecord(recordSnapshot, patch);
       let nextProviderKey = providerKeySnapshot;
       let nextRecordIndex = state.recordIndex;
       let sourceRefreshWarning = '';
       try {
-        const refreshedRawText = requestScope
-          ? await authFilesApi.downloadText(fileName, requestScope)
-          : await authFilesApi.downloadText(fileName);
-        if (!isCurrentTarget()) return;
-        const refreshed = parseAuthFileConfigurationSource(
-          refreshedRawText,
-          resolution.target ?? targetSnapshot
-        );
-        nextRecord = refreshed.record;
-        nextProviderKey = refreshed.providerKey;
-        nextRecordIndex = refreshed.recordIndex;
+        if (!verifiedPlanRecord) {
+          const refreshedRawText = requestScope
+            ? await authFilesApi.downloadText(fileName, requestScope)
+            : await authFilesApi.downloadText(fileName);
+          if (!isCurrentTarget()) return;
+          const refreshed = parseAuthFileConfigurationSource(
+            refreshedRawText,
+            resolution.target ?? targetSnapshot
+          );
+          nextRecord = refreshed.record;
+          nextProviderKey = refreshed.providerKey;
+          nextRecordIndex = refreshed.recordIndex;
+        }
       } catch (refreshError: unknown) {
         if (!isCurrentTarget()) return;
-        sourceRefreshWarning =
-          refreshError instanceof Error ? refreshError.message : t('common.unknown_error');
+        sourceRefreshWarning = planCredential
+          ? t('accounts.config_error_plan_save')
+          : refreshError instanceof Error
+            ? refreshError.message
+            : t('common.unknown_error');
       }
       const normalizedDraft = buildAuthFileConfigurationDraft(nextRecord, nextProviderKey);
+      let nextAuthFile = resolution.target ?? targetSnapshot;
+      if (verifiedPlanRecord && patch.api_key !== undefined) {
+        // CPA uses the selected key as its account snapshot. Carry the verified
+        // replacement forward; a second save must still verify it against inventory.
+        const oldKey =
+          typeof recordSnapshot.api_key === 'string' ? recordSnapshot.api_key.trim() : '';
+        const newKey = typeof nextRecord.api_key === 'string' ? nextRecord.api_key : '';
+        nextAuthFile = { ...nextAuthFile };
+        for (const field of [
+          'account',
+          'email',
+          'display_account',
+          'displayAccount',
+          'accountSnapshot',
+          'account_snapshot',
+        ]) {
+          if (
+            oldKey &&
+            typeof nextAuthFile[field] === 'string' &&
+            nextAuthFile[field].trim() === oldKey
+          ) {
+            nextAuthFile[field] = newKey;
+          }
+        }
+      }
       setScopedState((previous) => {
         if (
           previous?.scopeKey !== scopeKey ||
@@ -404,7 +467,7 @@ export function useAuthFileConfigurationEditor(
           ...previous,
           value: {
             ...previous.value,
-            authFile: resolution.target ?? previous.value.authFile,
+            authFile: nextAuthFile,
             saving: false,
             record: nextRecord,
             recordIndex: nextRecordIndex,
@@ -414,7 +477,14 @@ export function useAuthFileConfigurationEditor(
           },
         };
       });
-      showNotification(t('accounts.config_saved_success'), 'success');
+      showNotification(
+        t(
+          updatingPlanCredential
+            ? 'accounts.config_plan_saved_success'
+            : 'accounts.config_saved_success'
+        ),
+        'success'
+      );
       if (sourceRefreshWarning) {
         showNotification(
           `${t('notification.download_failed')}: ${sourceRefreshWarning}`,
@@ -426,8 +496,11 @@ export function useAuthFileConfigurationEditor(
           await reconcileSource(targetPhysicalName || fileName);
         } catch (refreshError: unknown) {
           if (isCurrentTarget()) {
-            const refreshMessage =
-              refreshError instanceof Error ? refreshError.message : t('common.unknown_error');
+            const refreshMessage = planCredential
+              ? t('accounts.config_error_plan_save')
+              : refreshError instanceof Error
+                ? refreshError.message
+                : t('common.unknown_error');
             showNotification(`${t('notification.load_failed')}: ${refreshMessage}`, 'warning');
           }
         }
@@ -435,7 +508,19 @@ export function useAuthFileConfigurationEditor(
       if (isCurrentTarget()) onSaved?.(fileName);
     } catch (error: unknown) {
       if (!isCurrentTarget()) return;
-      const message = error instanceof Error ? error.message : t('common.unknown_error');
+      const planErrorKey =
+        error instanceof Error && error.message === 'AUTH_FILE_PLAN_DUPLICATE'
+          ? 'accounts.config_error_plan_duplicate'
+          : error instanceof Error && error.message === 'AUTH_FILE_PLAN_SOURCE_CHANGED'
+            ? 'accounts.config_error_plan_source_changed'
+            : error instanceof Error && error.message === 'AUTH_FILE_PLAN_UNSAFE_IDENTITY'
+              ? 'accounts.config_error_plan_configured'
+              : 'accounts.config_error_plan_save';
+      const message = planCredential
+        ? t(planErrorKey)
+        : error instanceof Error
+          ? error.message
+          : t('common.unknown_error');
       showNotification(`${t('notification.update_failed')}: ${message}`, 'error');
       setScopedState((previous) =>
         previous?.scopeKey === scopeKey &&
@@ -445,6 +530,14 @@ export function useAuthFileConfigurationEditor(
       );
     } finally {
       saveInFlightScopesRef.current.delete(scopeKey);
+      if (requestIdRef.current === requestIdSnapshot) {
+        setScopedState((previous) =>
+          previous?.scopeKey === scopeKey &&
+          getAuthFileSelectionKey(previous.value.authFile) === selectionKey
+            ? { ...previous, value: { ...previous.value, saving: false } }
+            : previous
+        );
+      }
     }
   }, [
     canSave,

@@ -22,6 +22,32 @@ func TestWriteCORSAllowsSupportedMethods(t *testing.T) {
 	}
 }
 
+func TestWriteCORSAllowsVerifiedCredentialUploadHeaders(t *testing.T) {
+	for _, origin := range []string{"*", "https://panel.example.com"} {
+		t.Run(origin, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodOptions, "/v0/management/auth-files", nil)
+			req.Header.Set("Origin", "https://panel.example.com")
+			req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+			required := []string{"x-cpamp-auth-file-write-identities", "x-cpamp-auth-file-write-content-sha256"}
+			req.Header.Set("Access-Control-Request-Headers", strings.Join(required, ","))
+			handler := WithCORS(config.Config{CORSOrigins: []string{origin}}, func(w http.ResponseWriter, r *http.Request) {
+				t.Fatal("preflight must not invoke the upload handler")
+			})
+			handler(rr, req)
+			if rr.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204", rr.Code)
+			}
+			allowed := strings.ToLower(rr.Header().Get("Access-Control-Allow-Headers"))
+			for _, header := range required {
+				if !strings.Contains(allowed, header) {
+					t.Errorf("preflight does not allow %s", header)
+				}
+			}
+		})
+	}
+}
+
 func TestWriteCORSAllowsResumableImportHeader(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("OPTIONS", "/v0/management/usage/import-sessions/session-1/chunk?offset=1024", nil)

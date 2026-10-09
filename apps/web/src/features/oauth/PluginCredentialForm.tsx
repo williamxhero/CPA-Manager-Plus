@@ -7,6 +7,11 @@ import type { ApiClientRequestScope } from '@/services/api/client';
 import { useAuthStore, useNotificationStore } from '@/stores';
 import type { PluginCredentialFormDefinition } from './pluginCredentialMetadata';
 import { isPlanCredentialPlugin } from '@/features/plugins/planPlugins';
+import {
+  getPlanCredentialDefaultBaseUrl,
+  isValidPlanCredentialBaseUrl,
+  isValidPlanCredentialApiKey,
+} from '@/utils/planCredentials';
 import styles from './OAuthPage.module.scss';
 
 interface PluginCredentialFormProps {
@@ -32,6 +37,35 @@ export function PluginCredentialForm({
   const [createdLabel, setCreatedLabel] = useState('');
   const mounted = useRef(false);
   const inFlight = useRef(false);
+  const isPlan = isPlanCredentialPlugin(pluginId);
+  const fields = definition.fields.map((field) => {
+    if (!isPlan) return field;
+    switch (field.name) {
+      case 'name':
+        return {
+          ...field,
+          label: t('plan_credentials.alias_label'),
+          placeholder: t('plan_credentials.alias_placeholder'),
+          required: false,
+        };
+      case 'base_url':
+        return {
+          ...field,
+          label: t('plan_credentials.base_url_label'),
+          placeholder: getPlanCredentialDefaultBaseUrl(pluginId),
+          required: false,
+        };
+      case 'api_key':
+        return {
+          ...field,
+          label: t('plan_credentials.api_key_label'),
+          type: 'password' as const,
+          required: true,
+        };
+      default:
+        return field;
+    }
+  });
 
   useEffect(() => {
     mounted.current = true;
@@ -44,28 +78,37 @@ export function PluginCredentialForm({
     event.preventDefault();
     if (inFlight.current || loadingMetadata) return;
     const payload = Object.fromEntries(
-      definition.fields.map((field) => [field.name, values[field.name] || ''])
+      fields.map((field) => [field.name, values[field.name] || ''])
     );
+    const secrets = fields
+      .filter((field) => field.type === 'password')
+      .map((field) => payload[field.name])
+      .filter(Boolean)
+      .sort((left, right) => right.length - left.length);
+    const redact = (message: string) =>
+      secrets.reduce((safe, secret) => safe.split(secret).join('[redacted]'), message);
     setError('');
     setCreatedLabel('');
-    const isPlan = isPlanCredentialPlugin(pluginId);
-    const missing = definition.fields.find(
-      (field) =>
-        (field.required || (isPlan && (field.name === 'base_url' || field.name === 'api_key'))) &&
-        !payload[field.name].trim()
-    );
+    if (isPlan && Object.prototype.hasOwnProperty.call(payload, 'base_url')) {
+      // Hosts may mark this required; an empty plan URL explicitly selects the provider default.
+      payload.base_url = payload.base_url.trim() || getPlanCredentialDefaultBaseUrl(pluginId);
+    }
+    const missing = fields.find((field) => field.required && !payload[field.name].trim());
     if (missing) {
-      setError(t('plan_credentials.required_field', { field: missing.label }));
+      setError(redact(t('plan_credentials.required_field', { field: missing.label })));
       return;
     }
-    if (isPlan && Object.prototype.hasOwnProperty.call(payload, 'base_url')) {
-      try {
-        const url = new URL(payload.base_url);
-        if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error();
-      } catch {
-        setError(t('plan_credentials.invalid_base_url'));
-        return;
-      }
+    if (isPlan && !isValidPlanCredentialApiKey(payload.api_key)) {
+      setError(t('accounts.config_error_plan_api_key'));
+      return;
+    }
+    if (
+      isPlan &&
+      (!isValidPlanCredentialBaseUrl(payload.base_url) ||
+        payload.base_url.includes(payload.api_key))
+    ) {
+      setError(t('plan_credentials.invalid_base_url'));
+      return;
     }
     const isConnectionCurrent = () => {
       const auth = useAuthStore.getState();
@@ -99,7 +142,7 @@ export function PluginCredentialForm({
               ])
             )
       );
-      setCreatedLabel(response?.label || '');
+      setCreatedLabel(isPlan ? redact(response?.label || '') : response?.label || '');
       if (!isPlan) onCreated();
       showNotification(t('plan_credentials.success', { defaultValue: '凭证添加成功' }), 'success');
     } catch (err: unknown) {
@@ -110,14 +153,7 @@ export function PluginCredentialForm({
         message = message === duplicate ? duplicate : `${duplicate}: ${message}`;
       }
       // A plugin error must not accidentally echo submitted secrets back into the panel/toast.
-      const secrets = definition.fields
-        .filter((field) => field.type === 'password')
-        .map((field) => payload[field.name])
-        .filter(Boolean)
-        .sort((left, right) => right.length - left.length);
-      for (const secret of secrets) {
-        message = message.split(secret).join('[redacted]');
-      }
+      message = redact(message);
       setError(message);
       showNotification(message, 'error');
     } finally {
@@ -127,8 +163,13 @@ export function PluginCredentialForm({
   };
 
   return (
-    <form className={styles.cardContent} onSubmit={submit} autoComplete="off" noValidate>
-      {definition.fields.map((field) => (
+    <form
+      className={isPlan ? `${styles.cardContent} ${styles.planCredentialRow}` : styles.cardContent}
+      onSubmit={submit}
+      autoComplete="off"
+      noValidate
+    >
+      {fields.map((field) => (
         <Input
           key={field.name}
           name={field.name}
@@ -146,7 +187,7 @@ export function PluginCredentialForm({
       ))}
       <div className={styles.callbackActions}>
         <Button type="submit" loading={submitting || loadingMetadata}>
-          {definition.submitLabel}
+          {isPlan ? t('plan_credentials.add_button') : definition.submitLabel}
         </Button>
       </div>
       {createdLabel && (

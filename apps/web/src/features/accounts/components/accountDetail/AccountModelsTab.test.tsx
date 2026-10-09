@@ -49,6 +49,8 @@ const makeDraft = (
   websockets: false,
   xaiRoutingMode: 'grok-build',
   baseUrl: '',
+  alias: '',
+  apiKey: '',
   cloakMode: '',
   cloakStrictMode: false,
   cloakSensitiveWordsText: '',

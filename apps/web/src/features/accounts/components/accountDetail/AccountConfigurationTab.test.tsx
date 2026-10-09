@@ -4,7 +4,11 @@ import { Input } from '@/components/ui/Input';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
 import type { AccountRow } from '@/features/accounts/model/accountRows';
 import type { UseAuthFileConfigurationEditorResult } from '@/features/authFiles/hooks/useAuthFileConfigurationEditor';
-import type { AuthFileConfigurationDraft } from '@/features/authFiles/model/authFileConfiguration';
+import {
+  buildAuthFileConfigurationDraft,
+  buildRedactedAuthFileConfigurationText,
+  type AuthFileConfigurationDraft,
+} from '@/features/authFiles/model/authFileConfiguration';
 import { AccountConfigurationTab } from './AccountConfigurationTab';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -50,6 +54,8 @@ const makeDraft = (
   websockets: false,
   xaiRoutingMode: 'grok-build',
   baseUrl: '',
+  alias: '',
+  apiKey: '',
   cloakMode: '',
   cloakStrictMode: false,
   cloakSensitiveWordsText: '',
@@ -128,6 +134,165 @@ const renderTab = (
 };
 
 describe('AccountConfigurationTab', () => {
+  describe.each([
+    ['qwen', 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'],
+    ['opencode-go', 'https://opencode.ai/zen/go/v1'],
+  ])('%s plan configuration', (provider, defaultBaseUrl) => {
+    const storedKey = 'test-stored-ui-plan-key-1234';
+    const replacementKey = 'test-replacement-ui-plan-key-5678';
+
+    const planInputs = (renderer: ReactTestRenderer) => ({
+      alias: renderer.root
+        .findAllByType(Input)
+        .find((input) => input.props.label === 'plan_credentials.alias_label'),
+      baseUrl: renderer.root
+        .findAllByType(Input)
+        .find((input) => input.props.label === 'plan_credentials.base_url_label'),
+      apiKey: renderer.root
+        .findAllByType(Input)
+        .find((input) => input.props.label === 'plan_credentials.api_key_label'),
+    });
+
+    it('shows alias, custom upstream and a blank password replacement input', () => {
+      const record = {
+        type: provider,
+        api_key: storedKey,
+        label: `Alias ${storedKey}`,
+        base_url: 'https://gateway.example/v1',
+        nested: { description: `Echo ${storedKey}` },
+      };
+      const editor = makeEditor(provider, buildAuthFileConfigurationDraft(record, provider));
+      editor.state!.record = record;
+      editor.rawDataText = buildRedactedAuthFileConfigurationText(record);
+      const onCopyText = vi.fn();
+      const renderer = renderTab(makeRow(provider), editor, onCopyText);
+      const inputs = planInputs(renderer);
+
+      expect(inputs.alias?.props.value).toBe('Alias [redacted]');
+      expect(inputs.baseUrl?.props.value).toBe(record.base_url);
+      expect(inputs.baseUrl?.props.placeholder).toBe(defaultBaseUrl);
+      expect(inputs.apiKey?.props).toMatchObject({
+        type: 'password',
+        value: '',
+        autoComplete: 'new-password',
+      });
+      const passwords = renderer.root
+        .findAllByType('input')
+        .filter((input) => input.props.type === 'password');
+      expect(passwords).toHaveLength(1);
+      expect(passwords[0].props.value).toBe('');
+      expect(readText(renderer.toJSON())).not.toContain(storedKey);
+      expect(JSON.stringify(renderer.toJSON())).not.toContain(storedKey);
+      for (const node of renderer.root.findAll((node) => typeof node.type === 'string')) {
+        expect(String(node.props.title ?? '')).not.toContain(storedKey);
+        expect(String(node.props['aria-label'] ?? '')).not.toContain(storedKey);
+        expect(String(node.props['aria-description'] ?? '')).not.toContain(storedKey);
+      }
+      expect(readText(renderer.root.findByType('pre'))).toContain('"api_key": "[redacted]"');
+      expect(readText(renderer.root.findByType('pre'))).toContain(
+        '"description": "Echo [redacted]"'
+      );
+      const copyButton = renderer.root
+        .findAllByType('button')
+        .find((button) => readText(button).includes('common.copy'));
+      act(() => copyButton!.props.onClick());
+      expect(onCopyText).toHaveBeenCalledExactlyOnceWith(editor.rawDataText);
+      expect(onCopyText.mock.calls[0][0]).not.toContain(storedKey);
+      act(() => renderer.unmount());
+    });
+
+    it.each([
+      ['alias', 'Friendly alias'],
+      ['baseUrl', 'https://edited-gateway.example/v1'],
+      ['apiKey', replacementKey],
+    ] as const)('forwards only the %s field to the editor', (field, value) => {
+      const editor = makeEditor(provider);
+      const renderer = renderTab(makeRow(provider), editor);
+      const input = planInputs(renderer)[field];
+      expect(input).toBeDefined();
+      act(() => input!.props.onChange({ target: { value } }));
+      expect(editor.updateField).toHaveBeenCalledExactlyOnceWith(field, value);
+      expect(editor.save).not.toHaveBeenCalled();
+      act(() => renderer.unmount());
+    });
+
+    it('keeps a typed replacement password-only without plaintext or accessibility echoes', () => {
+      const editor = makeEditor(provider, makeDraft({ apiKey: replacementKey }));
+      const renderer = renderTab(makeRow(provider), editor);
+      const hosts = renderer.root.findAll((node) => typeof node.type === 'string');
+      const replacementInputs = hosts.filter((node) => node.props.value === replacementKey);
+      expect(replacementInputs).toHaveLength(1);
+      expect(replacementInputs[0].type).toBe('input');
+      expect(replacementInputs[0].props.type).toBe('password');
+      expect(readText(renderer.toJSON())).not.toContain(replacementKey);
+      for (const node of hosts) {
+        expect(String(node.props.title ?? '')).not.toContain(replacementKey);
+        expect(String(node.props['aria-label'] ?? '')).not.toContain(replacementKey);
+        expect(String(node.props.placeholder ?? '')).not.toContain(replacementKey);
+      }
+      act(() => renderer.unmount());
+    });
+
+    it('renders static validation errors next to the matching plan inputs', () => {
+      const editor = makeEditor(provider);
+      editor.errors = {
+        apiKey: 'accounts.config_error_plan_api_key',
+        baseUrl: 'accounts.config_error_plan_base_url',
+      };
+      const renderer = renderTab(makeRow(provider), editor);
+      const inputs = planInputs(renderer);
+      expect(inputs.apiKey?.props.error).toBe('accounts.config_error_plan_api_key');
+      expect(inputs.baseUrl?.props.error).toBe('accounts.config_error_plan_base_url');
+      expect(readText(renderer.toJSON())).toContain('accounts.config_error_plan_api_key');
+      expect(readText(renderer.toJSON())).toContain('accounts.config_error_plan_base_url');
+      act(() => renderer.unmount());
+    });
+
+    it('disables all plan inputs for shared read-only sources while preserving raw access', () => {
+      const editor = makeEditor(provider);
+      editor.sharedSourceReadOnly = true;
+      editor.sourceMemberCount = 2;
+      const renderer = renderTab(makeRow(provider), editor);
+      const inputs = planInputs(renderer);
+      expect(inputs.alias?.props.disabled).toBe(true);
+      expect(inputs.baseUrl?.props.disabled).toBe(true);
+      expect(inputs.apiKey?.props.disabled).toBe(true);
+      expect(readText(renderer.toJSON())).toContain('accounts.config_shared_source_read_only');
+      expect(renderer.root.findByType('details')).toBeDefined();
+      expect(
+        renderer.root
+          .findAllByType('button')
+          .find((button) => readText(button).includes('common.save'))?.props.disabled
+      ).toBe(true);
+      act(() => renderer.unmount());
+    });
+
+    it('keeps plan fields disabled while a save is in flight', () => {
+      const editor = makeEditor(provider);
+      editor.state!.saving = true;
+      const renderer = renderTab(makeRow(provider), editor);
+      expect(
+        Object.values(planInputs(renderer)).every((input) => input?.props.disabled === true)
+      ).toBe(true);
+      act(() => renderer.unmount());
+    });
+  });
+
+  it.each(['codex', 'claude', 'xai', 'gemini', 'aistudio', 'antigravity', 'iflow'])(
+    'does not expose plan alias or password inputs for %s',
+    (provider) => {
+      const renderer = renderTab(makeRow(provider), makeEditor(provider));
+      const labels = renderer.root.findAllByType(Input).map((input) => input.props.label);
+      expect(labels).not.toContain('plan_credentials.alias_label');
+      expect(labels).not.toContain('plan_credentials.base_url_label');
+      expect(labels).not.toContain('plan_credentials.api_key_label');
+      expect(
+        renderer.root.findAllByType('input').filter((input) => input.props.type === 'password')
+      ).toHaveLength(0);
+      act(() => renderer.unmount());
+    }
+  );
+
   it('keeps the initial configuration state free of animated loading icons', () => {
     const editor = makeEditor('codex');
     editor.state = null;

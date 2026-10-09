@@ -19,6 +19,11 @@ import {
 } from '@/utils/authFileStatusMutation';
 import { sha256RawTextHex } from '@/utils/apiKeyHash';
 import { parseTimestampMs } from '@/utils/timestamp';
+import {
+  getPlanCredentialDefaultBaseUrl,
+  isValidPlanCredentialApiKey,
+  isValidPlanCredentialBaseUrl,
+} from '@/utils/planCredentials';
 
 type StatusError = { status?: number };
 export type AuthFilesApiRequestScope = ApiClientRequestScope;
@@ -47,6 +52,8 @@ type AuthFileModelApiItem = {
   owned_by?: string;
 };
 export type AuthFileFieldsPatch = {
+  label?: string;
+  api_key?: string;
   expired?: string;
   last_refresh?: string;
   prefix?: string;
@@ -125,6 +132,10 @@ const CPA_PLUGIN_VIRTUAL_MUTATION_CONFLICT =
   'plugin virtual auth cannot be modified directly; edit or delete the source auth file';
 
 export const AUTH_FILE_INVALID_JSON_OBJECT_ERROR = 'AUTH_FILE_INVALID_JSON_OBJECT';
+export const AUTH_FILE_PLAN_DUPLICATE = 'AUTH_FILE_PLAN_DUPLICATE';
+export const AUTH_FILE_PLAN_SOURCE_CHANGED = 'AUTH_FILE_PLAN_SOURCE_CHANGED';
+export const AUTH_FILE_PLAN_SAVE_UNVERIFIED = 'AUTH_FILE_PLAN_SAVE_UNVERIFIED';
+export const AUTH_FILE_PLAN_UNSAFE_IDENTITY = 'AUTH_FILE_PLAN_UNSAFE_IDENTITY';
 
 const getStatusCode = (err: unknown): number | undefined => {
   if (!err || typeof err !== 'object') return undefined;
@@ -669,6 +680,9 @@ export const applyAuthFileFieldsPatchToRecord = (
     }
   };
 
+  applyTrimmedString('label', fields.label);
+  applyTrimmedString('api_key', fields.api_key);
+
   if (fields.expired !== undefined) {
     const value = fields.expired.trim();
     if (value) {
@@ -1160,6 +1174,77 @@ const buildAuthFileStatusPayload = (
   };
 };
 
+const authFileJsonValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => authFileJsonValuesEqual(value, right[index]))
+    );
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        authFileJsonValuesEqual(leftRecord[key], rightRecord[key])
+    )
+  );
+};
+
+const planSourceRecordsMatch = (
+  expected: Record<string, unknown>,
+  current: Record<string, unknown>
+): boolean => {
+  const identityFields = [
+    'id',
+    'type',
+    'provider',
+    'name',
+    'runtime_id',
+    'runtimeId',
+    'auth_index',
+    'authIndex',
+    'auth-index',
+    'label',
+    'api_key',
+    'base_url',
+    'baseUrl',
+    'base-url',
+  ];
+  const expectedFile = { ...expected, name: '' } as AuthFileItem;
+  const currentFile = { ...current, name: '' } as AuthFileItem;
+  return (
+    identityFields.every((key) => authFileJsonValuesEqual(expected[key], current[key])) &&
+    readAuthFileStatusAccountId(expectedFile) === readAuthFileStatusAccountId(currentFile) &&
+    readAuthFileStatusAccountSnapshot(expectedFile) ===
+      readAuthFileStatusAccountSnapshot(currentFile)
+  );
+};
+
+const planIdentityMatches = (left: AuthFileStatusTarget, right: AuthFileStatusTarget): boolean =>
+  authFileJsonValuesEqual(
+    normalizeAuthFileIdentityTargets([left])[0],
+    normalizeAuthFileIdentityTargets([right])[0]
+  );
+
+const planListIdentity = (file: AuthFileItem): AuthFileStatusTarget => ({
+  name: readAuthFileStatusPhysicalName(file),
+  runtimeId: readAuthFileStatusRuntimeId(file),
+  authIndex: readAuthFileStatusAuthIndex(file),
+  provider: readAuthFileStatusProvider(file),
+  accountId: readAuthFileStatusAccountId(file),
+  accountSnapshot: readAuthFileStatusAccountSnapshot(file),
+});
+
+const normalizePlanBaseUrl = (value: string): string => value.trim().replace(/\/+$/, '');
+
 export const authFilesApi = {
   list: async (requestScope?: AuthFilesApiRequestScope) => {
     const response = requestScope
@@ -1373,6 +1458,172 @@ export const authFilesApi = {
       },
       requestScope
     );
+  },
+
+  savePlanCredentialConfiguration: async (
+    target: AuthFileStatusTarget,
+    sourceIdentities: AuthFileStatusTarget[],
+    fields: AuthFileFieldsPatch,
+    expectedRecord: Record<string, unknown>,
+    requestScope?: AuthFilesApiRequestScope,
+    isCurrentTarget?: () => boolean
+  ): Promise<Record<string, unknown>> => {
+    // Never surface transport messages: upstream failures can contain credential material.
+    let errorCode = AUTH_FILE_PLAN_SOURCE_CHANGED;
+    const fail = (code: string): never => {
+      errorCode = code;
+      throw new Error(code);
+    };
+    const checkCurrentTarget = () => {
+      if (isCurrentTarget && !isCurrentTarget()) fail(AUTH_FILE_PLAN_SOURCE_CHANGED);
+    };
+    try {
+      checkCurrentTarget();
+      const name = target.name;
+      const provider = target.provider ?? '';
+      if (
+        !name ||
+        name !== name.trim() ||
+        name !== name.toLowerCase() ||
+        /[/\\]/.test(name) ||
+        Array.from(name).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+        !name.endsWith('.json') ||
+        target.runtimeId !== name ||
+        (provider !== 'qwen' && provider !== 'opencode-go') ||
+        sourceIdentities.length !== 1 ||
+        !planIdentityMatches(target, sourceIdentities[0])
+      ) {
+        fail(AUTH_FILE_PLAN_UNSAFE_IDENTITY);
+      }
+      const rawText = await authFilesApi.downloadText(name, requestScope);
+      checkCurrentTarget();
+      const current = parseAuthFileJsonObject(rawText);
+      if (
+        typeof current.base_url !== 'string' ||
+        !current.base_url.trim() ||
+        typeof expectedRecord.base_url !== 'string' ||
+        !expectedRecord.base_url.trim() ||
+        current.type !== provider ||
+        (current.provider !== undefined && current.provider !== provider) ||
+        (typeof current.api_key === 'string' &&
+          current.id === `${provider}-key-${sha256RawTextHex(current.api_key)}`)
+      ) {
+        fail(AUTH_FILE_PLAN_UNSAFE_IDENTITY);
+      }
+      if (!planSourceRecordsMatch(expectedRecord, current)) fail(AUTH_FILE_PLAN_SOURCE_CHANGED);
+      // CPA exposes the API key as the account snapshot for API-key runtimes,
+      // although the source JSON need not contain an account field.
+      const sourceTarget = {
+        ...target,
+        accountSnapshot:
+          target.accountSnapshot === current.api_key &&
+          !readAuthFileStatusAccountSnapshot({ ...current, name: '' } as AuthFileItem)
+            ? undefined
+            : target.accountSnapshot,
+      };
+      verifyAuthFileJsonPatchTargets(current, [sourceTarget]);
+      const next = applyAuthFileFieldsPatchToRecord(current, {
+        ...fields,
+        // Empty password inputs mean retain the stored key, not clear it.
+        api_key: fields.api_key?.trim() ? fields.api_key : undefined,
+      });
+      const baseUrl = normalizePlanBaseUrl(
+        typeof next.base_url === 'string' && next.base_url.trim()
+          ? next.base_url
+          : getPlanCredentialDefaultBaseUrl(provider)
+      );
+      const apiKey = typeof next.api_key === 'string' ? next.api_key : '';
+      if (
+        !isValidPlanCredentialApiKey(apiKey) ||
+        !isValidPlanCredentialBaseUrl(baseUrl) ||
+        baseUrl.includes(apiKey)
+      ) {
+        fail(AUTH_FILE_PLAN_UNSAFE_IDENTITY);
+      }
+      // Add derives these filenames from the key/URL pair. Rotating in place would
+      // let a later Add of the original pair overwrite this file instead of detecting
+      // a duplicate. Fail closed rather than regenerate its persistent identity.
+      if (
+        new RegExp(`^${provider}-key-[a-f0-9]{64}$`).test(name.slice(0, -5)) &&
+        (apiKey !== current.api_key || baseUrl !== normalizePlanBaseUrl(String(current.base_url)))
+      ) {
+        fail(AUTH_FILE_PLAN_UNSAFE_IDENTITY);
+      }
+      // Store the effective default explicitly so watcher reloads retain filename identity.
+      next.base_url = baseUrl;
+
+      const inventory = await authFilesApi.list(requestScope);
+      checkCurrentTarget();
+      const sameSource = inventory.files.filter(
+        (file) => readAuthFileStatusPhysicalName(file) === name
+      );
+      if (
+        sameSource.length !== 1 ||
+        !planIdentityMatches(target, planListIdentity(sameSource[0]))
+      ) {
+        fail(AUTH_FILE_PLAN_SOURCE_CHANGED);
+      }
+      const otherNames = new Set(
+        inventory.files
+          .filter((file) => readAuthFileStatusProvider(file) === provider)
+          .filter((file) => !planIdentityMatches(target, planListIdentity(file)))
+          .map(readAuthFileStatusPhysicalName)
+      );
+      for (const otherName of otherNames) {
+        if (!otherName) fail(AUTH_FILE_PLAN_SOURCE_CHANGED);
+        const otherText = await authFilesApi.downloadText(otherName, requestScope);
+        checkCurrentTarget();
+        const otherValue = parseAuthFileJsonValue(otherText);
+        const records = Array.isArray(otherValue) ? otherValue : [otherValue];
+        if (
+          records.some(
+            (record) =>
+              (record.type === provider || record.provider === provider) &&
+              typeof record.api_key === 'string' &&
+              record.api_key.trim() === apiKey &&
+              typeof record.base_url === 'string' &&
+              record.base_url.trim() !== '' &&
+              normalizePlanBaseUrl(record.base_url) === baseUrl
+          )
+        ) {
+          fail(AUTH_FILE_PLAN_DUPLICATE);
+        }
+      }
+
+      checkCurrentTarget();
+      // /fields support varies by host version and does not reliably refresh plugin attributes.
+      // Verify the full source through a conditional same-filename upload instead.
+      errorCode = AUTH_FILE_PLAN_SAVE_UNVERIFIED;
+      await saveAuthFileText(
+        name,
+        JSON.stringify(next),
+        {
+          ...buildAuthFileIdentityHeaders(AUTH_FILE_WRITE_IDENTITIES_HEADER, sourceIdentities),
+          [AUTH_FILE_WRITE_CONTENT_SHA256_HEADER]: sha256RawTextHex(rawText),
+        },
+        requestScope
+      );
+      checkCurrentTarget();
+      const saved = await authFilesApi.downloadJsonObject(name, requestScope);
+      checkCurrentTarget();
+      const verificationFields = new Set([
+        'id',
+        'type',
+        'provider',
+        'api_key',
+        'label',
+        'base_url',
+        ...Object.keys(current),
+        ...Object.keys(next),
+      ]);
+      if ([...verificationFields].some((key) => !authFileJsonValuesEqual(saved[key], next[key]))) {
+        fail(AUTH_FILE_PLAN_SAVE_UNVERIFIED);
+      }
+      return saved;
+    } catch {
+      // Do not delete or roll back the source: an upload failure may follow a successful write.
+      throw new Error(errorCode);
+    }
   },
 
   uploadFiles: async (
