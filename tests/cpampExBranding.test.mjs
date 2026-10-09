@@ -21,6 +21,7 @@ const SVG_MARKER = 'data-cpamp-ex="1"';
 // Pillow PNG text chunks store the marker as plain bytes, so a raw scan suffices.
 const PNG_MARKER = Buffer.from('cpamp-ex');
 const read = (file) => readFileSync(file);
+const CR = String.fromCharCode(13);
 
 const brandSvgFiles = readdirSync(brandDir).filter((name) => name.endsWith('.svg'));
 const brandPngFiles = readdirSync(brandDir).filter((name) => name.endsWith('.png'));
@@ -57,7 +58,13 @@ describe('CPAMP EX fork branding', () => {
     const html = read(indexPath).toString('utf8');
     const ico = read(faviconWeb).toString('base64');
     const apple = read(appleWeb).toString('base64');
-    const svg = read(path.join(brandDir, 'favicon.svg')).toString('base64');
+    // favicon.svg is a text asset: the committed blob is LF, but a Windows checkout with
+    // core.autocrlf may materialise CRLF on disk. Strip CR before hashing so the guard
+    // compares the LF bytes that ship in the build, not the checkout's line endings.
+    const svg = Buffer.from(
+      read(path.join(brandDir, 'favicon.svg')).toString('utf8').split(CR).join(''),
+      'utf8'
+    ).toString('base64');
 
     expect(html).toContain(`data:image/x-icon;base64,${ico}`);
     expect(html).toContain(`data:image/png;base64,${apple}`);
