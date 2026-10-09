@@ -28,7 +28,7 @@
   </g>
 
   <g data-cpamp-ex="1" shape-rendering="geometricPrecision">
-    <rect x="956.62" y="252.62" width="48.32" height="48.32" rx="10.63" fill="#005CFF" stroke="#FFFFFF" stroke-width="3.38"/>
-    <text x="980.78" y="276.78" font-family="Arial, Helvetica, sans-serif" font-size="24.16" font-weight="700" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">EX</text>
+    <rect x="947.56" y="243.56" width="60.4" height="60.4" rx="12.08" fill="#005CFF" stroke="#FFFFFF" stroke-width="4.23"/>
+    <text x="977.76" y="273.76" font-family="Arial, Helvetica, sans-serif" font-size="35.03" font-weight="700" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">EX</text>
   </g>
 </svg>

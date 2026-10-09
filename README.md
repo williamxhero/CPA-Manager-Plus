@@ -7,10 +7,10 @@
 
 # CPA Manager Plus
 
-[![Release](https://img.shields.io/github/v/release/seakee/CPA-Manager-Plus?style=flat-square)](https://github.com/seakee/CPA-Manager-Plus/releases/latest)
-[![License](https://img.shields.io/github/license/seakee/CPA-Manager-Plus?style=flat-square&color=blue)](https://github.com/seakee/CPA-Manager-Plus/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/williamxhero/CPA-Manager-Plus-ex?style=flat-square)](https://github.com/williamxhero/CPA-Manager-Plus-ex/releases/latest)
+[![License](https://img.shields.io/github/license/williamxhero/CPA-Manager-Plus-ex?style=flat-square&color=blue)](https://github.com/williamxhero/CPA-Manager-Plus-ex/blob/main/LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/seakee/cpa-manager-plus?style=flat-square)](https://hub.docker.com/r/seakee/cpa-manager-plus)
-[![Stars](https://img.shields.io/github/stars/seakee/CPA-Manager-Plus?style=flat-square&label=stars)](https://github.com/seakee/CPA-Manager-Plus/stargazers)
+[![Stars](https://img.shields.io/github/stars/williamxhero/CPA-Manager-Plus-ex?style=flat-square&label=stars)](https://github.com/williamxhero/CPA-Manager-Plus-ex/stargazers)
 
 A self-hosted CPA / CLIProxyAPI management panel and AI gateway observability dashboard for requests, usage, cost, quota, failures, and account health.
 
@@ -132,7 +132,7 @@ CPAMP manages and observes traffic through CPA / CLIProxyAPI. It is not a replac
 For a guided full-stack or CPAMP-only deployment:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/seakee/CPA-Manager-Plus/main/bin/install-cpamp.sh
+curl -fsSLO https://raw.githubusercontent.com/williamxhero/CPA-Manager-Plus-ex/main/bin/install-cpamp.sh
 bash install-cpamp.sh
 ```
 
@@ -265,4 +265,4 @@ docker compose -f docker-compose.manager.yml up --build
 
 ## License
 
-[MIT](https://github.com/seakee/CPA-Manager-Plus/blob/main/LICENSE) — Copyright 2026 Seakee.
+[MIT](https://github.com/williamxhero/CPA-Manager-Plus-ex/blob/main/LICENSE) — Copyright 2026 Seakee.

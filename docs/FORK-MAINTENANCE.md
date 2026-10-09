@@ -28,7 +28,7 @@
 | 8 | Qwen 额度 + 凭证卡渲染 | 新增功能 | web `utils/quota/qwenQuota.ts`、`features/accounts/model/accountQuota*`、`accountSubscriptionPresentation.ts` | 无 | 保留 | 上游覆盖时替换 | 无 | 单测 + 凭证卡页面 | 已实现（fork 主线） |
 | 9 | 受保护的计划凭证编辑 | 新增功能 | web `services/api/authFiles.ts`（plan configuration）、`features/authFiles/hooks/useAuthFileConfigurationEditor.ts`、`accounts/components/accountDetail/AccountConfigurationTab.tsx`；`docs/plan-credential-editing.zh-CN.md` | 无 | 保留 | 上游覆盖时替换 | 无 | 单测 | 已实现（fork 主线） |
 | 10 | provider source 解析改造 | 兼容修复 | web `utils/sourceResolver.ts`、`monitoring/model/sourceDisplay.ts`、`realtimeSourceDisplay.ts` 等 | 无 | 保留 | 上游覆盖时替换 | 无 | 单测 | 已实现（fork 主线） |
-| 11 | CPAMP EX 品牌角标 + 主题 provider 图标 + 添加页改名 | 品牌偏好 | 品牌资产 `apps/web/src/assets/brand/*`（15 SVG + 15 PNG 全部加 EX 角标）、`apps/web/public/favicon.ico`、`apple-touch-icon.png` 及 manager-server 内嵌副本、`apps/web/index.html` 内联回退；provider 图标 `apps/web/src/assets/icons/opencode-{light,dark}.png` + `features/authFiles/constants.ts`；文案 `i18n/locales/*`、`features/plugins/planPlugins.ts`、`features/planCredentials/PlanCredentialsPage.tsx` | 无（fork 品牌偏好） | 保留；EX 仅加于 CPAMP 自有资产，**不加**第三方 provider 标志 | 上游若提供官方品牌变体，按需替换但保留 EX 语义 | 无 | `tests/cpampExBranding.test.mjs`、`repoSourceIntegrity.test.mjs`、`constants.test.ts`、`PlanCredentialsPage.test.tsx`、`planCredentialsWiring.test.ts` | 本 PR 实现（`claude/ex-branding`），**未合并/未部署** |
+| 11 | CPAMP EX 品牌角标 + 主题 provider 图标 + 添加页改名 | 品牌偏好 | 品牌资产 `apps/web/src/assets/brand/*`（15 SVG + 15 PNG 全部加 EX 角标）、`apps/web/public/favicon.ico`、`apple-touch-icon.png` 及 manager-server 内嵌副本、`apps/web/index.html` 内联回退；生成脚本 `bin/branding/generate-cpamp-ex-assets.py`（见「品牌资产生成」）；provider 图标 `apps/web/src/assets/icons/opencode-{light,dark}.png` + `features/authFiles/constants.ts`；文案 `i18n/locales/*`、`features/plugins/planPlugins.ts`、`features/planCredentials/PlanCredentialsPage.tsx` | 无（fork 品牌偏好） | 保留；EX 仅加于 CPAMP 自有资产，**不加**第三方 provider 标志 | 上游若提供官方品牌变体，按需替换但保留 EX 语义 | 无 | `tests/cpampExBranding.test.mjs`、`repoSourceIntegrity.test.mjs`、`constants.test.ts`、`PlanCredentialsPage.test.tsx`、`planCredentialsWiring.test.ts` | 本 PR 实现（`claude/ex-branding`），**未合并/未部署** |
 
 ## 上游合并检查表
 
@@ -43,8 +43,64 @@
 > 上游已覆盖、且通过本 fork 验收的能力：移除重复实现，保留有价值的回归测试。
 > **不得**无条件 `ours`/`theirs` 合并。
 
+## 品牌资产生成（EX 角标）
+
+品牌资产的 EX 角标由脚本统一生成，**committed 资产是脚本输出，不手工编辑**。
+
+- 生成脚本：`bin/branding/generate-cpamp-ex-assets.py`
+- 依赖：Python 3.8+ 与 Pillow（`pip install Pillow`）；读取 git 源时另需 `git`。
+- 源：`--source-ref`（默认 `DEFAULT_SOURCE_REF`，即角标落地前的最后一个提交）里的
+  **未加角标** 资产。每次运行都从干净源重建，因此**不会累加/叠印**角标。
+- 产出（35 项）：15 品牌 SVG + 15 品牌 PNG + `apps/web/public/favicon.ico` +
+  `apple-touch-icon.png`（各自与 manager-server 内嵌副本逐字节一致），并重算
+  `apps/web/index.html` 的三处内联 base64 回退。
+- 幂等校验：`python bin/branding/generate-cpamp-ex-assets.py --check`
+  （重建到内存后与工作树逐字节比较，漂移即非零退出）。
+- 16px favicon 帧：抗锯齿的 Arial「EX」在 16px 会糊成一片，故 16px 帧改用定制
+  像素字形——3×5 的 `E` + 1px 间隙 + 3×5 的 `X`（7×5 白色像素，蓝底，1px 留白），
+  只落在右下角（9×7，占比 < 半幅，不遮主体）。32/48 帧保持原可读构图。
+- 回归守卫：`tests/cpampExBranding.test.mjs` 直接解码 ICO 内 16px 帧的 PNG 像素，
+  断言字形逐像素（白色 20 个：E 11 + X 9），而非匹配标记字符串。
+
+## 面向用户链接切 fork（SPEC #6）
+
+已核实（只读）：fork `williamxhero/CPA-Manager-Plus-ex` 是上游的 fork，**仓库页/tag 存在**，但
+**无 GitHub Release（API `/releases` 为空）、无 release 资产、无 `update-channel` 分支、无 GHCR/Docker
+Hub 镜像（`williamxhero/cpa-manager-plus` 不存在）、未启用 GitHub Pages**。据此分类处理：
+
+**已切到 fork（受 `tests/forkEntryLinks.test.mjs` 守卫）**
+
+- 仓库/项目入口：README(+CN) 徽章（release/license/stars）、LICENSE 文件链接、`SystemPage.tsx` 仓库
+  快捷入口、`MainLayout.tsx` 页头/侧栏仓库入口、docs vitepress editLink 与 socialLinks、`apps/docs/**`
+  的项目与 Release 浏览链接、`bin/install-cpamp.sh` 文档中安装脚本 raw 链接。
+- 版本/发布浏览链接：`versionReleaseLinks.ts` 的 manager 目标改为 fork（`/releases/tag/<tag>` 对 fork
+  已存在的 tag 返回 200；fork 自发布版本必然带同名 tag）。
+- 演示 fixture：`demoFixtures.ts` 的示例 release 链接。
+
+**保留上游引用（逐一理由，不得盲目字符串替换）**
+
+| 引用 | 位置 | 保留理由 |
+|---|---|---|
+| `Copyright (c) 2026 Seakee` / `Copyright 2026 Seakee` | `LICENSE`、README、docs footer | 法律要求的原作者署名 |
+| `git remote add upstream .../seakee/CPA-Manager-Plus.git` | `CONTRIBUTING.md` | 明确命名的上游同步 remote，用于未来合并 seakee 更新 |
+| Go module `github.com/seakee/cpa-manager-plus/...` | `go.mod`、`Dockerfile.manager-server`、`package-native.sh` ldflags | 内部 import identity，改动会牵动全部 import，非用户可见，独立评估 |
+| 历史 release notes/posts | `docs/release-notes/**`、`docs/release-posts/**` | 历史记录，保留原样 |
+| 旧版 `seakee/cpa-manager` 镜像 | migration 文档 | 指向更早的另一个项目，非本 fork |
+| 镜像 `seakee/cpa-manager-plus`（docker.io + ghcr.io） | README、docs、`UsageMaintenanceCapabilityViews.tsx`、`bin/install-cpamp.sh` | **fork 未发布自有镜像**；改指 fork 会使 `docker pull` 404，下载请求失效 |
+| `update-channel/update-index.json`（raw） | `version.ts`、`updatecheck/metadata.go`、`docs/update-check.md` | **fork 无 `update-channel` 分支**；改指 fork 会 404、更新检查失效 |
+| `panel-github-repository` 示例值 | docs（getting-started/cpa-panel/faq/update） | 已切 fork 作为推荐值；但需 fork 先发布 Releases 方能真正下载 `management.html`（见阻塞） |
+| release 流水线仓库常量/镜像名/source label | `bin/release/*.mjs`、`.github/workflows/release*.yml` | 绑定发布身份与镜像仓库；fork 尚无发布器与命名空间，改指会 fail-closed |
+
+**阻塞（需人工/发布后处理，不声称完成）**
+
+1. fork 尚未发布任何 GitHub Release/资产 → 一键安装脚本的 native 下载、`panel-github-repository` 的
+   `management.html` 拉取、端口版本卡片的 release 页仍可能落空。需在 fork 运行发布流水线后复核。
+2. fork 未启用 GitHub Pages，`demo-pages.yml` 未在 fork main 运行 → README/界面/文档站的在线演示与
+   在线文档链接仍指向上游 `seakee.github.io/CPA-Manager-Plus/`（唯一可用站点）。
+3. fork 未发布镜像（docker.io/ghcr.io）→ 安装脚本与 README 的镜像拉取仍走上游镜像。
+4. fork 无 `update-channel` 分支 → 管理器自动更新索引仍指向上游。
+
 ## 待开发 / 后续
 
-- #6 的面向用户链接切 fork（README 徽章/安装 raw/文档站、`SystemPage.tsx`、`versionReleaseLinks.ts`、`bin/release/*`、workflows、`apps/docs/**` 等）：**本卡未实现**，需先核实 fork release/tag/镜像真实存在，不得制造 404。
 - Go module path 改名：属独立评估，不在本轮字符串替换范围。
 - 桌面端/托盘/安装器图标：本仓无独立资产，如引入需单独补 EX。
