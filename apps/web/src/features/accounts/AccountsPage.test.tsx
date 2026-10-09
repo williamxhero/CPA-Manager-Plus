@@ -882,6 +882,23 @@ vi.mock('@/features/oauth/CodexReauthDialog', () => ({
   },
 }));
 
+// Isolate the credential-toolbar auto start/stop switch so this page suite does
+// not depend on the Manager account-processing-policy network lifecycle.
+// Its states and persistence wiring are covered by
+// CredentialAutoStartStopToggle.test.tsx.
+vi.mock('@/features/accounts/components/CredentialAutoStartStopToggle', () => ({
+  CredentialAutoStartStopToggle: (props: {
+    managerServiceBase: string;
+    managementKey: string;
+  }) => (
+    <span
+      data-credential-auto-start-stop-stub
+      data-manager-service-base={props.managerServiceBase}
+      data-management-key={props.managementKey}
+    />
+  ),
+}));
+
 vi.mock('@/services/api/apiCall', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/api/apiCall')>();
   return {
@@ -20365,5 +20382,32 @@ describe('AccountsPage replacement flows', () => {
         vi.useRealTimers();
       }
     });
+  });
+
+  it('renders the credential auto start/stop switch to the left of the select / full / refresh-quota actions', async () => {
+    const renderer = await renderAccountsPage();
+    const ordered = renderer.root.findAll(() => true);
+    const stub = renderer.root.findByProps({ 'data-credential-auto-start-stop-stub': true });
+    const stubIndex = ordered.indexOf(stub);
+
+    expect(stubIndex).toBeGreaterThanOrEqual(0);
+    expect(stub.props['data-manager-service-base']).toBe('http://manager.local:18317');
+    expect(stub.props['data-management-key']).toBe('manager-key');
+
+    const selectButton = findButtonByText(renderer, 'accounts.selection_mode_enter');
+    const refreshButton = findButtonByText(renderer, 'accounts.refresh_quota');
+    expect(stubIndex).toBeLessThan(ordered.indexOf(selectButton));
+    expect(stubIndex).toBeLessThan(ordered.indexOf(refreshButton));
+
+    const hasBatchActionsAncestor = (node: ReactTestInstance | null): boolean => {
+      let current = node;
+      while (current) {
+        const className = (current.props as { className?: unknown }).className;
+        if (typeof className === 'string' && className.includes('batchActions')) return true;
+        current = current.parent;
+      }
+      return false;
+    };
+    expect(hasBatchActionsAncestor(stub.parent)).toBe(true);
   });
 });
