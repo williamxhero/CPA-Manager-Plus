@@ -249,8 +249,8 @@
     "ai_providers": "AI Providers",
     "ai_providers_short": "AI Providers",
     "accounts": "Credential Management",
-    "plan_credentials": "Add plan credentials",
-    "plan_credentials_short": "Plan credentials",
+    "plan_credentials": "Add credentials",
+    "plan_credentials_short": "Credentials",
     "oauth": "OAuth Login",
     "oauth_short": "OAuth",
     "plugins": "Plugins",
@@ -273,7 +273,7 @@
     "usage_maintenance_short": "Maintenance"
   },
   "plan_credentials": {
-    "title": "Add plan credentials",
+    "title": "Add credentials",
     "alias_label": "Alias",
     "base_url_label": "Base URL",
     "api_key_label": "API Key",

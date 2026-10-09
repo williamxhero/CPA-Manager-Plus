@@ -247,8 +247,8 @@
     "ai_providers": "AI 提供商",
     "accounts": "凭证管理",
     "ai_providers_short": "AI",
-    "plan_credentials": "添加计划凭证",
-    "plan_credentials_short": "计划凭证",
+    "plan_credentials": "添加凭证",
+    "plan_credentials_short": "凭证",
     "oauth": "OAuth 登录",
     "oauth_short": "OAuth",
     "plugins": "插件管理",
@@ -271,7 +271,7 @@
     "usage_maintenance_short": "维护"
   },
   "plan_credentials": {
-    "title": "添加计划凭证",
+    "title": "添加凭证",
     "alias_label": "别名",
     "base_url_label": "Base URL",
     "api_key_label": "API Key",
