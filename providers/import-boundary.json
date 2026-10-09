@@ -139,7 +139,7 @@
       "displayName": "Qwen Token Plan CLIProxyAPI plugin",
       "pluginId": "qwen-cliproxyapi",
       "importStrategy": "one-time-import",
-      "status": "planned",
+      "status": "imported",
       "sourceRepo": "williamxhero/qwen-cliproxyapi",
       "sourceBranch": "claude/qwen-provider",
       "remote": null,
@@ -148,7 +148,7 @@
       "sourceDecision": {
         "status": "decided",
         "owner": "SPEC5-A",
-        "note": "协调者默认（comment 6080913010）：Qwen 只作一次性目录导入，不虚构 upstream 或 subtree remote；出现真实上游同步需求时另立 SPEC。权威快照为 williamxhero/qwen-cliproxyapi 默认分支 claude/qwen-provider。"
+        "note": "协调者默认（comment 6080913010）：Qwen 只作一次性目录导入，不虚构 upstream 或 subtree remote；出现真实上游同步需求时另立 SPEC。权威快照为 williamxhero/qwen-cliproxyapi 默认分支 claude/qwen-provider。SPEC5-C 实际导入 williamxhero/qwen-cliproxyapi main@595320999cb5b17a7e7754e70ce740f9b578c212（main 领先默认分支 claude/qwen-provider 4 个提交）。"
       },
       "cli": {
         "path": "cmd/bailian-quota",
@@ -174,7 +174,18 @@
         "**/dist/**"
       ],
       "requiredFiles": ["LICENSE", "NOTICE.md", "go.mod", "main.go", "cmd/bailian-quota/main.go"],
-      "contentAllowlist": []
+      "contentAllowlist": [
+        {
+          "glob": "internal/plugin/mask_test.go",
+          "patternId": "openai-key",
+          "reason": "Diagrammatic fake key literals exercise maskAPIKey format and length; not a real credential."
+        },
+        {
+          "glob": "internal/errclass/errclass_test.go",
+          "patternId": "openai-key",
+          "reason": "Fake sk-ant-... literal is an input fixture for the x-api-key echo redaction test; not a real credential."
+        }
+      ]
     }
   ],
   "buildInterface": {
