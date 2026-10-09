@@ -2201,6 +2201,7 @@
     "filter_meta": "Muse (Meta)",
     "filter_iflow": "iFlow",
     "filter_vertex": "Vertex",
+    "filter_opencode-go": "OpenCode Go",
     "filter_empty": "空檔案",
     "filter_unknown": "其他",
     "models_button": "模型",

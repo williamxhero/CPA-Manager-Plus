@@ -80,4 +80,30 @@ describe('CPAMP EX fork branding', () => {
       expect(data.toString('utf8').includes(SVG_MARKER)).toBe(false);
     }
   });
+
+  it('renders the sidebar EX tag as theme-independent DOM text, not baked pixels', () => {
+    const layout = read(
+      path.resolve(repoRoot, 'apps/web/src/components/layout/MainLayout.tsx')
+    ).toString('utf8');
+    // The 30x32 sidebar raster bakes an EX chip that is only ~5px tall, so the
+    // sidebar must carry a crisp DOM tag anchored to the symbol's corner.
+    expect(layout).toContain('className="sidebar-brand-symbol-wrap"');
+    expect(layout).toContain('className="sidebar-brand-ex"');
+
+    const scss = read(path.resolve(repoRoot, 'apps/web/src/styles/layout.scss')).toString('utf8');
+    expect(scss).toContain('.sidebar-brand-symbol-wrap');
+    expect(scss).toMatch(/\.sidebar-brand-ex\s*\{[^}]*position:\s*absolute[^}]*\}/s);
+    expect(scss).toMatch(/\.sidebar-brand-ex\s*\{[^}]*background:\s*#005cff/s);
+  });
+
+  it('keeps the baked EX chip large enough relative to icon-like assets', () => {
+    // v1 used 0.26 * shorter side; the final acceptance round required a bigger,
+    // bolder corner chip so it still resolves at small render sizes.
+    const symbol = read(path.join(brandDir, 'cpamp-symbol-color.svg')).toString('utf8');
+    const rect = symbol.match(/<rect x="([\d.]+)"[^>]*?\bwidth="([\d.]+)"/);
+    expect(rect).not.toBeNull();
+    const [, , width] = rect;
+    // cpamp-symbol-color.svg viewBox is 272 wide (shorter side).
+    expect(Number(width)).toBeGreaterThanOrEqual(272 * 0.28);
+  });
 });

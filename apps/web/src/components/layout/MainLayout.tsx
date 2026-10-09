@@ -941,11 +941,16 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
         >
           <div className="sidebar-brand" title={fullBrandName}>
             <div className="sidebar-brand-main">
-              <img
-                src={CPAMP_SYMBOL_COLOR_PNG_URL}
-                alt={showSidebarLabels ? '' : 'CPA Manager Plus'}
-                className="sidebar-brand-symbol"
-              />
+              <span className="sidebar-brand-symbol-wrap">
+                <img
+                  src={CPAMP_SYMBOL_COLOR_PNG_URL}
+                  alt={showSidebarLabels ? '' : 'CPA Manager Plus'}
+                  className="sidebar-brand-symbol"
+                />
+                <span className="sidebar-brand-ex" aria-hidden="true">
+                  EX
+                </span>
+              </span>
               {showSidebarLabels && (
                 <>
                   <img

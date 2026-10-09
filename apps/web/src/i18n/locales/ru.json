@@ -2207,6 +2207,7 @@
     "filter_meta": "Muse (Meta)",
     "filter_iflow": "iFlow",
     "filter_vertex": "Vertex",
+    "filter_opencode-go": "OpenCode Go",
     "filter_empty": "Пусто",
     "filter_unknown": "Другое",
     "models_button": "Модели",
