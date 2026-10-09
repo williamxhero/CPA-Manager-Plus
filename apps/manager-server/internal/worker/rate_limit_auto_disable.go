@@ -51,6 +51,7 @@ type RateLimitAutoDisableWorker struct {
 	mu                  sync.RWMutex
 	baseURL             string
 	managementKey       string
+	enabled             bool
 	enableCheckInterval time.Duration
 }
 
@@ -100,6 +101,7 @@ func NewRateLimitAutoDisableWorkerWithMutationCoordinator(
 		authFileMutations:   coordinator,
 		compensationTimeout: authFileMutationCompensationTimeout,
 		jobs:                make(chan quotaAutoDisableCandidate, quotaAutoDisableQueueSize),
+		enabled:             true,
 		enableCheckInterval: quotaAutoDisableDefaultTick,
 	}
 	if len(initial) > 0 {
@@ -199,6 +201,33 @@ func (w *RateLimitAutoDisableWorker) runtimeConfig() (string, string) {
 	return w.baseURL, w.managementKey
 }
 
+// SetEnabled controls whether the worker is allowed to take automatic quota
+// actions. It is driven by the persisted account-processing policy so that OFF
+// pauses both auto-disable and auto-recovery, and a credential that was disabled
+// by this policy is not silently re-enabled while the policy is paused. ON
+// resumes the scheduled recovery checks.
+func (w *RateLimitAutoDisableWorker) SetEnabled(enabled bool) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	changed := w.enabled != enabled
+	w.enabled = enabled
+	w.mu.Unlock()
+	if changed {
+		log.Printf("[quota-auto-disable] automatic quota actions enabled=%t", enabled)
+	}
+}
+
+func (w *RateLimitAutoDisableWorker) isEnabled() bool {
+	if w == nil {
+		return false
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.enabled
+}
+
 func (w *RateLimitAutoDisableWorker) handleCandidate(ctx context.Context, candidate quotaAutoDisableCandidate) {
 	if w == nil {
 		return
@@ -211,6 +240,11 @@ func (w *RateLimitAutoDisableWorker) handleCandidate(ctx context.Context, candid
 func (w *RateLimitAutoDisableWorker) handleCandidateLocked(ctx context.Context, candidate quotaAutoDisableCandidate) {
 	if w.store == nil || w.store.QuotaCooldowns == nil {
 		log.Printf("[quota-auto-disable] store unavailable, skip auth file %q", candidate.FileName)
+		return
+	}
+	if !w.isEnabled() {
+		// A candidate may have been queued just before the policy was paused.
+		log.Printf("[quota-auto-disable] automatic quota actions paused, skip auth file %q", candidate.FileName)
 		return
 	}
 	if candidate.FileName == "" || candidate.BaseURL == "" || candidate.ManagementKey == "" {
@@ -592,6 +626,11 @@ func (w *RateLimitAutoDisableWorker) enableDue(ctx context.Context, now time.Tim
 
 func (w *RateLimitAutoDisableWorker) enableDueLocked(ctx context.Context, now time.Time) {
 	if w.store == nil || w.store.QuotaCooldowns == nil {
+		return
+	}
+	if !w.isEnabled() {
+		// OFF pauses every automatic quota action. Historical CPAMP-owned
+		// cooldowns stay disabled until the operator resumes the policy.
 		return
 	}
 	baseURL, managementKey := w.runtimeConfig()

@@ -2692,6 +2692,116 @@ func TestRateLimitAutoDisableWorkerSkipsSameNameCredentialWithoutAuthIndex(t *te
 	}
 }
 
+func TestRateLimitAutoDisableWorkerPausesAutomaticActionsWhenPolicyDisabled(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	var mu sync.Mutex
+	disabled := false
+	type action struct {
+		Name     string `json:"name"`
+		Disabled bool   `json:"disabled"`
+	}
+	actions := make([]action, 0)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-management-key" {
+			http.Error(w, "missing auth", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/v0/management/auth-files" && r.URL.Path != "/v0/management/auth-files/status" {
+			http.NotFound(w, r)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			mu.Lock()
+			currentDisabled := disabled
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id":         "runtime-codex-auth-1",
+				"name":       "codex-auth.json",
+				"authIndex":  "auth-1",
+				"provider":   "codex",
+				"account":    "user@example.com",
+				"account_id": "workspace-1",
+				"disabled":   currentDisabled,
+			}})
+		case http.MethodPatch:
+			if r.URL.Path != "/v0/management/auth-files/status" {
+				http.NotFound(w, r)
+				return
+			}
+			var item action
+			if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			disabled = item.Disabled
+			actions = append(actions, item)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	worker := NewRateLimitAutoDisableWorker(st, collectorpkg.RuntimeConfig{CPAUpstreamURL: server.URL, ManagementKey: "test-management-key"})
+	candidate := quotaAutoDisableCandidate{
+		BaseURL:         server.URL,
+		ManagementKey:   "test-management-key",
+		FileName:        "codex-auth.json",
+		AuthIndex:       "auth-1",
+		DisplayAccount:  "user@example.com",
+		AccountSnapshot: "user@example.com",
+		AccountID:       "workspace-1",
+		Provider:        "codex",
+		ResetAt:         time.Now().Add(time.Minute),
+		EventHash:       "evt-quota",
+	}
+
+	// OFF pauses both a queued disable candidate and a due recovery.
+	worker.SetEnabled(false)
+	worker.handleCandidate(ctx, candidate)
+	worker.enableDue(ctx, time.Now().Add(2*time.Minute))
+	mu.Lock()
+	if len(actions) != 0 {
+		t.Fatalf("actions while policy OFF = %#v, want none", actions)
+	}
+	mu.Unlock()
+	active, err := st.QuotaCooldowns.ListActive(ctx)
+	if err != nil {
+		t.Fatalf("list active cooldowns: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("active cooldowns while policy OFF = %#v, want none", active)
+	}
+
+	// ON resumes both disable and recovery.
+	worker.SetEnabled(true)
+	worker.handleCandidate(ctx, candidate)
+	mu.Lock()
+	if len(actions) != 1 || actions[0].Name != "runtime-codex-auth-1" || !actions[0].Disabled || !disabled {
+		t.Fatalf("disable actions after policy ON = %#v disabled=%v", actions, disabled)
+	}
+	mu.Unlock()
+
+	worker.enableDue(ctx, time.Now().Add(2*time.Minute))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(actions) != 2 {
+		t.Fatalf("actions = %#v, want disable then enable", actions)
+	}
+	if actions[1].Name != "runtime-codex-auth-1" || actions[1].Disabled || disabled {
+		t.Fatalf("enable action = %#v disabled=%v", actions[1], disabled)
+	}
+}
+
 func waitForWorkerTest(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

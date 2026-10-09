@@ -63,3 +63,5 @@ Before deleting, confirm that the same auth file is not used by another model or
 Use this queue for recurring auth-class problems. It is not meant for one-off network errors, upstream 5xx, or missing model names. If unsure, ignore or observe first; do not delete immediately.
 
 Recovery follows an ownership rule: quota cooldown restores only credentials it disabled; inspection restores only inspection-owned disables; auth-failure disables are not restored by either worker and require reauthorization or manual handling.
+
+The account-processing policy toggle (`codexQuotaCooldown`, `USAGE_QUOTA_COOLDOWN_ENABLED`) gates quota cooldown in both directions and is re-applied on startup. While it is OFF the worker neither disables credentials nor re-enables ones it disabled earlier, so a paused policy leaves historical CPAMP-owned disables in place until the policy is turned back ON, which resumes the scheduled recovery checks.
