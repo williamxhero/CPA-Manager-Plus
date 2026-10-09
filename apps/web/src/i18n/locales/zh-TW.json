@@ -247,7 +247,7 @@
     "ai_providers": "AI 供應商",
     "accounts": "憑證管理",
     "ai_providers_short": "AI",
-    "plan_credentials": "新增計畫憑證",
+    "plan_credentials": "新增憑證",
     "plan_credentials_short": "憑證",
     "oauth": "OAuth 登入",
     "oauth_short": "OAuth",
@@ -271,7 +271,7 @@
     "usage_maintenance_short": "維護"
   },
   "plan_credentials": {
-    "title": "新增計畫憑證",
+    "title": "新增憑證",
     "loading": "正在載入計畫插件…",
     "empty": "目前沒有可用的計畫憑證插件",
     "required_field": "請填寫{{field}}",

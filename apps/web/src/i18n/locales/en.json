@@ -249,7 +249,7 @@
     "ai_providers": "AI Providers",
     "ai_providers_short": "AI Providers",
     "accounts": "Credential Management",
-    "plan_credentials": "Add plan credentials",
+    "plan_credentials": "Add credentials",
     "plan_credentials_short": "Credentials",
     "oauth": "OAuth Login",
     "oauth_short": "OAuth",
@@ -273,7 +273,7 @@
     "usage_maintenance_short": "Maintenance"
   },
   "plan_credentials": {
-    "title": "Add plan credentials",
+    "title": "Add credentials",
     "loading": "Loading plan plugins…",
     "empty": "No plan credential plugins are available",
     "required_field": "Please enter {{field}}",
