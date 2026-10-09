@@ -11,6 +11,8 @@ import iconIflow from '@/assets/icons/iflow.svg';
 import iconKimiDark from '@/assets/icons/kimi-dark.svg';
 import iconKimiLight from '@/assets/icons/kimi-light.svg';
 import iconMeta from '@/assets/icons/meta.svg';
+import iconOpenCodeDark from '@/assets/icons/opencode-dark.png';
+import iconOpenCodeLight from '@/assets/icons/opencode-light.png';
 import iconQwen from '@/assets/icons/qwen.svg';
 import iconVertex from '@/assets/icons/vertex.svg';
 import type { AuthFileItem } from '@/types';
@@ -122,6 +124,11 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
     light: { bg: '#e5f2ff', text: '#0064e0' },
     dark: { bg: '#0b3564', text: '#70b5ff' },
   },
+  // OpenCode logo: monochrome graphite wordmark -> neutral slate tag
+  'opencode-go': {
+    light: { bg: '#eef0f4', text: '#333a45', border: '1px solid #d6dae1' },
+    dark: { bg: '#242a33', text: '#c7cfda', border: '1px solid #3b424d' },
+  },
   empty: {
     light: { bg: '#f5f5f5', text: '#616161' },
     dark: { bg: '#424242', text: '#bdbdbd' },
@@ -143,6 +150,7 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   iflow: iconIflow,
   kimi: { light: iconKimiLight, dark: iconKimiDark },
   meta: iconMeta,
+  'opencode-go': { light: iconOpenCodeLight, dark: iconOpenCodeDark },
   qwen: iconQwen,
   vertex: iconVertex,
 };

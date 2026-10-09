@@ -18,6 +18,8 @@ Operate providers, credentials, OAuth, plugins, and configuration while keeping 
 
 [中文](README_CN.md) ｜ [Live Demo](https://seakee.github.io/CPA-Manager-Plus/) ｜ [Documentation](https://seakee.github.io/CPA-Manager-Plus/docs/en/) ｜ [Install](#quick-start)
 
+> This repository is the **CPAMP-EX** fork. Fork-specific customizations and the upstream-merge checklist live in [docs/FORK-MAINTENANCE.md](docs/FORK-MAINTENANCE.md).
+
 </div>
 
 ## What Can CPAMP Help You Answer?
