@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -147,13 +147,28 @@ describe('provider import boundary contract', () => {
     expect(validateManifest(loadManifest(repoRoot))).toEqual([]);
   });
 
-  it('passes on the current repository while providers are not yet imported', () => {
+  it('passes on the current repository for every manifest provider state', () => {
+    const manifest = loadManifest(repoRoot);
     const { ok, findings, info } = runBoundaryCheck({ root: repoRoot });
 
     expect(findings).toEqual([]);
     expect(ok).toBe(true);
-    expect(info.some((line) => line.includes('opencode-go not imported yet'))).toBe(true);
-    expect(info.some((line) => line.includes('qwen not imported yet'))).toBe(true);
+    // Providers land in separate SPECs, so this must hold both before and after an import.
+    for (const provider of manifest.providers) {
+      const present = existsSync(path.join(repoRoot, provider.dir));
+      expect(
+        info.some((line) => line.includes(provider.id) && line.includes('not imported yet'))
+      ).toBe(!present);
+    }
+  });
+
+  it('reports both imported providers as decided in the committed manifest', () => {
+    const manifest = loadManifest(repoRoot);
+    const byId = Object.fromEntries(manifest.providers.map((provider) => [provider.id, provider]));
+
+    expect(byId['opencode-go'].status).toBe('imported');
+    expect(byId['opencode-go'].sourceDecision.status).toBe('decided');
+    expect(byId.qwen.status).toBe('imported');
   });
 
   it('treats a planned provider with no directory as not-yet-imported', () => {
@@ -230,6 +245,31 @@ describe('provider import boundary contract', () => {
       true
     );
     expect(findings.join('\n')).not.toContain(FAKE_KEY);
+  });
+
+  it('rejects a provider file larger than the configured cap', () => {
+    const base = withProviders({ ...baseProvider(), status: 'imported' });
+    const manifest = {
+      ...base,
+      globalForbidden: { ...base.globalForbidden, maxFileBytes: 32 },
+    };
+    const root = makeRepo({
+      manifest,
+      providerFiles: {
+        'providers/opencode-go/LICENSE': 'MIT',
+        'providers/opencode-go/go.mod': 'module x\n',
+        'providers/opencode-go/blob.txt': 'x'.repeat(64),
+      },
+    });
+
+    const { ok, findings } = runBoundaryCheck({ root });
+
+    expect(ok).toBe(false);
+    expect(
+      findings.some(
+        (finding) => finding.includes('blob.txt') && finding.includes('byte provider file cap')
+      )
+    ).toBe(true);
   });
 
   it('fails when an imported provider is missing a required file', () => {

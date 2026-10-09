@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // SPEC5-A: enforce the CPAMP single-repo providers layout, licence and import boundary.
 //
 // Contract source of truth: providers/import-boundary.json
@@ -18,6 +17,9 @@ export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 export const MANIFEST_PATH = 'providers/import-boundary.json';
 export const PROVIDERS_ROOT = 'providers';
 const TEXT_SCAN_MAX_BYTES = 2 * 1024 * 1024;
+// SPEC5-D: provider trees must stay source-only. Anything larger than this cap
+// is almost certainly a committed build artifact, vendored blob or stray export.
+export const DEFAULT_PROVIDER_MAX_FILE_BYTES = 1024 * 1024;
 const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules']);
 
 // Minimal fallback used when a caller does not supply manifest patterns.
@@ -210,6 +212,7 @@ export const scanProvider = (root, provider, manifest) => {
     ...(provider.excludeGlobs ?? []),
   ];
   const patterns = manifest.globalForbidden?.contentPatterns ?? FALLBACK_SECRET_PATTERNS;
+  const maxFileBytes = manifest.globalForbidden?.maxFileBytes ?? DEFAULT_PROVIDER_MAX_FILE_BYTES;
   const allowlist = provider.contentAllowlist ?? [];
   const dir = path.join(root, provider.dir);
 
@@ -238,6 +241,14 @@ export const scanProvider = (root, provider, manifest) => {
     } catch {
       continue;
     }
+
+    if (buffer.length > maxFileBytes) {
+      findings.push(
+        `${provider.dir}/${relativePath} is ${buffer.length} bytes, over the ${maxFileBytes}-byte provider file cap (large/committed artifacts must not be imported)`
+      );
+      continue;
+    }
+
     if (buffer.includes(0) || buffer.length > TEXT_SCAN_MAX_BYTES) continue;
 
     findings.push(

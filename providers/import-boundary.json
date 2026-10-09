@@ -6,6 +6,7 @@
   "attributionFile": "NOTICE",
   "description": "CPAMP 单仓 providers 布局、许可证与导入边界契约（SPEC5-A）。只定义契约与排除规则，不导入插件源码。",
   "globalForbidden": {
+    "maxFileBytes": 1048576,
     "binaryExtensions": [
       ".dll",
       ".exe",
@@ -59,7 +60,7 @@
       "displayName": "OpenCode Go CLIProxyAPI plugin",
       "pluginId": "opencode-go-cliproxyapi",
       "importStrategy": "git-subtree",
-      "status": "planned",
+      "status": "imported",
       "sourceRepo": "massiveits/opencode-go-cliproxyapi",
       "sourceBranch": "main",
       "remote": {
@@ -70,9 +71,12 @@
       "firstImportCommand": "git subtree add --prefix=providers/opencode-go opencode-upstream main --squash",
       "syncCommand": "git subtree pull --prefix=providers/opencode-go opencode-upstream main --squash",
       "sourceDecision": {
-        "status": "deferred",
+        "status": "decided",
         "owner": "SPEC5-B",
-        "note": "上游 massiveits/opencode-go-cliproxyapi 干净但落后本地 fork williamxhero/opencode-go-cliproxyapi-ex 17 个定制提交；SPEC5-B 决定导入源（上游 + 重新套用定制，或 fork 树 + 排除构建产物）。契约只固定目录、排除清单与同步命令形态。"
+        "importedAt": "2026-10-09",
+        "upstreamBase": "massiveits/opencode-go-cliproxyapi@a4369b9b1cf18a4111a0167e3b50e5d69054fe45",
+        "customizationSource": "williamxhero/opencode-go-cliproxyapi-ex@f88846cc75e1318a07882a43733830842b079d2d (17 commits ahead of upstream, 0 behind)",
+        "note": "SPEC5-B 定案：导入源 = 上游 massiveits/opencode-go-cliproxyapi（branch main）作 git subtree 基（--squash），随后在其上以本地提交重新套用本地 fork 的 17 个定制（凭证/额度/目录适配）。选择「上游作基 + 重新套用定制」而非「直接 subtree add fork 树」：实测直接 add fork 后 pull 上游会因 base=fork 而回退全部定制（隔离仓库验证）。上游因此仍是唯一 sync 源，定制以本地叠加提交保留，未来同步冲突须手动解决并测试，不得强行覆盖。构建/工作区垃圾（plugins/**、worker*、prompt8-credential-route.md）在导入提交中排除。"
       },
       "preserveCustomizations": [
         "d41f0a24 Use CLIProxyAPI v8 native quotas and readable OpenCode Go accounts",
@@ -112,7 +116,23 @@
         "**/dist/**"
       ],
       "requiredFiles": ["LICENSE", "go.mod", "main.go"],
-      "contentAllowlist": []
+      "contentAllowlist": [
+        {
+          "glob": "internal/errclass/errclass_test.go",
+          "patternId": "openai-key",
+          "reason": "测试夹具：错误消息脱敏用例中的 sk- 占位符，非真实凭据（SPEC5-B 已逐行核对）"
+        },
+        {
+          "glob": "internal/plugin/executor_test.go",
+          "patternId": "openai-key",
+          "reason": "测试夹具：TestExecuteUsesSelectedAuthKey* 用的 sk-cpa- 占位符，非真实凭据"
+        },
+        {
+          "glob": "internal/plugin/mask_test.go",
+          "patternId": "openai-key",
+          "reason": "测试夹具：maskAPIKey/fileNameAlias 脱敏用例的 sk-oc- 占位符，非真实凭据"
+        }
+      ]
     },
     {
       "id": "qwen",
@@ -120,7 +140,7 @@
       "displayName": "Qwen Token Plan CLIProxyAPI plugin",
       "pluginId": "qwen-cliproxyapi",
       "importStrategy": "one-time-import",
-      "status": "planned",
+      "status": "imported",
       "sourceRepo": "williamxhero/qwen-cliproxyapi",
       "sourceBranch": "claude/qwen-provider",
       "remote": null,
@@ -129,7 +149,7 @@
       "sourceDecision": {
         "status": "decided",
         "owner": "SPEC5-A",
-        "note": "协调者默认（comment 6080913010）：Qwen 只作一次性目录导入，不虚构 upstream 或 subtree remote；出现真实上游同步需求时另立 SPEC。权威快照为 williamxhero/qwen-cliproxyapi 默认分支 claude/qwen-provider。"
+        "note": "协调者默认（comment 6080913010）：Qwen 只作一次性目录导入，不虚构 upstream 或 subtree remote；出现真实上游同步需求时另立 SPEC。权威快照为 williamxhero/qwen-cliproxyapi 默认分支 claude/qwen-provider。SPEC5-C 实际导入 williamxhero/qwen-cliproxyapi main@595320999cb5b17a7e7754e70ce740f9b578c212（main 领先默认分支 claude/qwen-provider 4 个提交）。"
       },
       "cli": {
         "path": "cmd/bailian-quota",
@@ -155,7 +175,18 @@
         "**/dist/**"
       ],
       "requiredFiles": ["LICENSE", "NOTICE.md", "go.mod", "main.go", "cmd/bailian-quota/main.go"],
-      "contentAllowlist": []
+      "contentAllowlist": [
+        {
+          "glob": "internal/plugin/mask_test.go",
+          "patternId": "openai-key",
+          "reason": "Diagrammatic fake key literals exercise maskAPIKey format and length; not a real credential."
+        },
+        {
+          "glob": "internal/errclass/errclass_test.go",
+          "patternId": "openai-key",
+          "reason": "Fake sk-ant-... literal is an input fixture for the x-api-key echo redaction test; not a real credential."
+        }
+      ]
     }
   ],
   "buildInterface": {
@@ -171,7 +202,9 @@
         "kind": "plugin-c-shared",
         "workdir": "providers/opencode-go",
         "output": "providers/opencode-go/bin/opencode-go-cliproxyapi-windows-amd64.dll",
-        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/opencode-go-cliproxyapi-windows-amd64.dll ."
+        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/opencode-go-cliproxyapi-windows-amd64.dll .",
+        "env": { "CGO_ENABLED": "1", "GOOS": "windows", "GOARCH": "amd64" },
+        "args": ["build", "-buildmode=c-shared", "-o", "bin/opencode-go-cliproxyapi-windows-amd64.dll", "."]
       },
       {
         "id": "qwen-plugin",
@@ -179,7 +212,9 @@
         "kind": "plugin-c-shared",
         "workdir": "providers/qwen",
         "output": "providers/qwen/bin/qwen-cliproxyapi-windows-amd64.dll",
-        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/qwen-cliproxyapi-windows-amd64.dll ."
+        "build": "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -buildmode=c-shared -o bin/qwen-cliproxyapi-windows-amd64.dll .",
+        "env": { "CGO_ENABLED": "1", "GOOS": "windows", "GOARCH": "amd64" },
+        "args": ["build", "-buildmode=c-shared", "-o", "bin/qwen-cliproxyapi-windows-amd64.dll", "."]
       },
       {
         "id": "qwen-cli",
@@ -187,7 +222,9 @@
         "kind": "cli",
         "workdir": "providers/qwen",
         "output": "providers/qwen/bin/bailian-quota.exe",
-        "build": "go build -o bin/bailian-quota.exe ./cmd/bailian-quota"
+        "build": "go build -o bin/bailian-quota.exe ./cmd/bailian-quota",
+        "env": {},
+        "args": ["build", "-o", "bin/bailian-quota.exe", "./cmd/bailian-quota"]
       }
     ],
     "moduleBoundary": "每个 provider 保持独立 go.mod（module opencode-go-cliproxyapi / qwen-cliproxyapi），不并入 apps/manager-server module。",
@@ -195,7 +232,23 @@
       "existingWorkflow": ".github/workflows/pr-check.yml",
       "plannedJob": "providers",
       "landedBy": "SPEC5-D",
+      "landed": true,
       "checkScript": "bin/release/check-provider-import-boundary.mjs"
+    },
+    "implementation": {
+      "landedBy": "SPEC5-D",
+      "packageScripts": {
+        "check:providers": "node bin/release/check-provider-import-boundary.mjs",
+        "test:providers": "node bin/release/run-provider-go.mjs test",
+        "lint:providers": "node bin/release/run-provider-go.mjs vet",
+        "build:providers": "node bin/release/build-providers.mjs"
+      },
+      "runProviderGo": "bin/release/run-provider-go.mjs",
+      "buildScript": "bin/release/build-providers.mjs",
+      "goVersionMatrix": ["1.26.x", "1.27.x"],
+      "osMatrix": ["ubuntu-latest", "windows-latest"],
+      "dllBuildPolicy": "CI 不强制编译 c-shared DLL：若宿主无可用的 C 工具链（mingw-w64，amd64 需 x86_64-w64-mingw32-gcc），build-providers.mjs 跳过 DLL 并打印本地构建命令与安装提示；Qwen CLI 产物始终构建。真实本地构建命令见本接口 artifacts[].build（在对应 workdir 内执行）。",
+      "providerTestCommand": "在各自 module 目录执行 `go test ./...`（run-provider-go.mjs 从仓库根逐一进入 providers/<id> 运行）。Go 多模块下仓库根不支持单一的 `go test ./providers/...` 通配（providers/ 自身不是 module），故以每 module 命令作为统一入口。"
     }
   }
 }

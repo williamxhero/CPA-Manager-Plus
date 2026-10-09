@@ -901,6 +901,8 @@ func Migrate(db *sql.DB) error {
 			window_kind text,
 			evidence_json text,
 			recover_at_ms integer not null,
+			recover_at_kind text,
+			next_check_at_ms integer,
 			owner text not null,
 			event_hash text,
 			pre_disabled_state integer not null default 0,
@@ -2712,6 +2714,8 @@ func ensureQuotaCooldownColumns(db *sql.DB) error {
 		{name: "reason_code", definition: "text"},
 		{name: "window_kind", definition: "text"},
 		{name: "evidence_json", definition: "text"},
+		{name: "recover_at_kind", definition: "text"},
+		{name: "next_check_at_ms", definition: "integer"},
 	} {
 		if _, ok := existing[column.name]; ok {
 			continue
