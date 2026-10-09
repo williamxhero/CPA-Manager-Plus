@@ -164,7 +164,7 @@ describe('PlanCredentialsPage', () => {
     mocks.plugins.push(plugin('other-plugin', 'other'));
     await render();
     expect(renderer!.root.findAllByType('section')).toHaveLength(2);
-    expect(renderer!.root.findByType('h1').children).toEqual(['添加计划凭证']);
+    expect(renderer!.root.findByType('h1').children).toEqual(['添加凭证']);
     expect(renderer!.root.findAllByType('section').map((node) => node.props['aria-label'])).toEqual(
       ['Qwen Token Plan', 'OpenCode Go']
     );
