@@ -164,10 +164,15 @@ describe('PlanCredentialsPage', () => {
     mocks.plugins.push(plugin('other-plugin', 'other'));
     await render();
     expect(renderer!.root.findAllByType('section')).toHaveLength(2);
-    expect(renderer!.root.findByType('h1').children).toEqual(['添加计划凭证']);
+    expect(renderer!.root.findByType('h1').children).toEqual(['添加凭证']);
     expect(renderer!.root.findAllByType('section').map((node) => node.props['aria-label'])).toEqual(
-      ['Qwen', 'OpenCode']
+      ['Qwen Token Plan', 'OpenCode Go']
     );
+    const titleIcons = renderer!.root
+      .findAllByType('section')
+      .map((node) => node.findByType('img').props.src);
+    expect(titleIcons.every((src: string) => typeof src === 'string' && src.length > 0)).toBe(true);
+    expect(titleIcons[0]).not.toBe(titleIcons[1]);
     for (const [index, id] of ids.entries()) {
       const fields = section(index)
         .findAllByType(Input)

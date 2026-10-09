@@ -65,9 +65,9 @@ describe('plan credentials app wiring', () => {
       shortLabel: getPlanNav(zhCN).plan_credentials_short,
     }).toMatchInlineSnapshot(`
       {
-        "label": "添加计划凭证",
-        "shortLabel": "计划凭证",
-        "title": "添加计划凭证",
+        "label": "添加凭证",
+        "shortLabel": "凭证",
+        "title": "添加凭证",
       }
     `);
     expect(getPlanCredentials(zhCN)?.duplicate).toBe('凭证已存在');
@@ -91,7 +91,7 @@ describe('plan credentials app wiring', () => {
   );
 
   it('uses the requested English and Traditional Chinese titles', () => {
-    expect(getPlanCredentials(en)?.title).toBe('Add plan credentials');
-    expect(getPlanCredentials(zhTW)?.title).toBe('新增計畫憑證');
+    expect(getPlanCredentials(en)?.title).toBe('Add credentials');
+    expect(getPlanCredentials(zhTW)?.title).toBe('新增憑證');
   });
 });
