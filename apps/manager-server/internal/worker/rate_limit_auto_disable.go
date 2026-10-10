@@ -984,7 +984,7 @@ func qwenQuotaExhaustedValue(value any) bool {
 	case map[string]any:
 		for _, key := range []string{"code", "type", "error", "message", "status"} {
 			text := strings.ToLower(strings.TrimSpace(fmt.Sprint(typed[key])))
-			if strings.Contains(text, "quota_exhausted") || strings.Contains(text, "quota exhausted") || strings.Contains(text, "quota exceeded") || strings.Contains(text, "insufficient_quota") || strings.Contains(text, "limit exceeded") {
+			if strings.Contains(text, "quota_exhausted") || strings.Contains(text, "quota exhausted") || strings.Contains(text, "quota exceeded") || strings.Contains(text, "insufficient_quota") {
 				return true
 			}
 		}
