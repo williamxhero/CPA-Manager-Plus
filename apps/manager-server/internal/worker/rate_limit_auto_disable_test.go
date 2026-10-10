@@ -106,6 +106,31 @@ func TestQuotaAutoDisableCandidateRequiresStrictCodexUsageLimit(t *testing.T) {
 	}
 }
 
+func TestQuotaAutoDisableCandidateDetectsQwenExhaustion(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	event := usage.Event{Failed: true, FailStatusCode: http.StatusTooManyRequests, FailBody: `{"error":{"code":"quota_exhausted","resets_in_seconds":60}}`, AuthFileSnapshot: "qwen.json", AuthIndex: "qwen-1", Provider: "qwen"}
+	candidate, ok := quotaAutoDisableCandidateFromEvent(event, "http://cpa", "key", now)
+	if !ok || candidate.Provider != "qwen" || candidate.Owner != model.QuotaCooldownOwnerUsage429 {
+		t.Fatalf("candidate = %#v, ok=%t", candidate, ok)
+	}
+	if candidate.ResetAt.Unix() != now.Unix()+60 || candidate.RecoverAtKind != model.QuotaCooldownRecoverKindProvider {
+		t.Fatalf("schedule = %#v", candidate)
+	}
+}
+
+func TestQuotaAutoDisableCandidateQwenRequiresIdentityAndFailsClosed(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	base := usage.Event{Failed: true, FailStatusCode: http.StatusTooManyRequests, FailBody: `{"error":{"message":"quota exhausted"}}`, AuthFileSnapshot: "qwen.json", Provider: "qwen"}
+	if _, ok := quotaAutoDisableCandidateFromEvent(base, "http://cpa", "key", now); ok {
+		t.Fatal("missing auth index should not be accepted")
+	}
+	base.AuthIndex = "qwen-1"
+	base.Provider = "openai"
+	if _, ok := quotaAutoDisableCandidateFromEvent(base, "http://cpa", "key", now); ok {
+		t.Fatal("non-Qwen provider should not be accepted")
+	}
+}
+
 func TestQuotaAutoDisableCandidateAcceptsXAIIncludedFreeUsageExhausted(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	for _, statusCode := range []int{http.StatusPaymentRequired, http.StatusTooManyRequests} {

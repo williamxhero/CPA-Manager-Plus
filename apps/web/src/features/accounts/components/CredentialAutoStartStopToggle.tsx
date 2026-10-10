@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { useCredentialAutoStartStop } from '@/features/accounts/hooks/useCredentialAutoStartStop';
 import styles from './CredentialAutoStartStopToggle.module.scss';
@@ -44,13 +45,18 @@ export function CredentialAutoStartStopToggle({
         disabled={disabled}
         ariaLabel={t('accounts.auto_start_stop_aria')}
         label={t('accounts.auto_start_stop')}
+        labelPosition="left"
       />
       {saveError ? (
         <span className={styles.error} role="alert">
           {t('accounts.auto_start_stop_save_failed', { message: saveError })}
         </span>
       ) : (
-        <span className={styles.hint}>{renderHint()}</span>
+        <InfoTooltip
+          content={renderHint()}
+          ariaLabel={t('accounts.auto_start_stop_tooltip_aria')}
+          className={styles.help}
+        />
       )}
     </div>
   );
