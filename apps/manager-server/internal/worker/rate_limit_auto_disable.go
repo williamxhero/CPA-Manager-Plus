@@ -40,6 +40,7 @@ const (
 	// timestamp; it is never persisted or displayed as a recovery time.
 	xaiFreeUsageWindow         = 24 * time.Hour
 	quotaReasonCodexUsageLimit = "codex_usage_limit_reached"
+	quotaReasonQwenExhausted   = "qwen_quota_exhausted"
 	quotaReasonXAIFreeUsage    = "xai_free_usage_exhausted"
 	quotaWindowRolling24H      = "rolling_24h"
 	quotaWindowUnknown         = "unknown"
@@ -906,7 +907,20 @@ func quotaAutoDisableCandidateFromEvent(event usage.Event, baseURL string, manag
 			EvidenceJSON:    xaiProviderUsageEvidenceJSON(event, resetAt, now),
 		}, true
 	}
-	resetAt, ok := codexUsageLimitResetTimeFromEvent(event, now)
+	resetAt, kind, ok := qwenQuotaExhaustedResetTimeFromEvent(event, now)
+	if ok {
+		fileName := strings.TrimSpace(event.AuthFileSnapshot)
+		if fileName == "" || strings.TrimSpace(event.AuthIndex) == "" {
+			return quotaAutoDisableCandidate{}, false
+		}
+		return quotaAutoDisableCandidate{BaseURL: baseURL, ManagementKey: managementKey, FileName: fileName, AuthIndex: strings.TrimSpace(event.AuthIndex), DisplayAccount: firstNonEmpty(event.AccountSnapshot, event.AuthLabelSnapshot, event.Source, fileName), AccountSnapshot: quotaActionAccountSnapshot(fileName, event.AccountSnapshot), Provider: "qwen", ReasonCode: quotaReasonQwenExhausted, WindowKind: quotaWindowUnknown, ResetAt: resetAt, RecoverAtKind: kind, NextCheckAtMS: func() int64 {
+			if resetAt.IsZero() {
+				return now.Add(quotaCooldownConservativeCheckInterval).UnixMilli()
+			}
+			return resetAt.UnixMilli()
+		}(), EventHash: event.EventHash, Reason: event.FailSummary, Owner: model.QuotaCooldownOwnerUsage429}, true
+	}
+	resetAt, ok = codexUsageLimitResetTimeFromEvent(event, now)
 	if !ok {
 		return quotaAutoDisableCandidate{}, false
 	}
@@ -931,6 +945,107 @@ func quotaAutoDisableCandidateFromEvent(event usage.Event, baseURL string, manag
 		Reason:          event.FailSummary,
 		Owner:           model.QuotaCooldownOwnerUsage429,
 	}, true
+}
+
+func qwenQuotaExhaustedResetTimeFromEvent(event usage.Event, now time.Time) (time.Time, string, bool) {
+	if !event.Failed || (event.FailStatusCode != http.StatusPaymentRequired && event.FailStatusCode != http.StatusTooManyRequests) {
+		return time.Time{}, "", false
+	}
+	provider := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(firstNonEmpty(event.AuthProviderSnapshot, event.Provider)), "_", "-"))
+	if provider != "qwen" {
+		return time.Time{}, "", false
+	}
+	matched := false
+	for _, text := range []string{event.FailBody, event.RawJSON, event.FailSummary} {
+		forEachJSONValue(text, func(decoded any) bool {
+			if qwenQuotaExhaustedValue(decoded) {
+				matched = true
+				return true
+			}
+			return false
+		})
+		if matched {
+			break
+		}
+	}
+	if !matched {
+		return time.Time{}, "", false
+	}
+	for _, text := range []string{event.FailBody, event.RawJSON, event.FailSummary} {
+		if resetAt, ok := qwenResetTimeFromText(text, now); ok && resetAt.After(now) {
+			return resetAt, model.QuotaCooldownRecoverKindProvider, true
+		}
+	}
+	return time.Time{}, model.QuotaCooldownRecoverKindUnknown, true
+}
+
+func qwenQuotaExhaustedValue(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"code", "type", "error", "message", "status"} {
+			text := strings.ToLower(strings.TrimSpace(fmt.Sprint(typed[key])))
+			if strings.Contains(text, "quota_exhausted") || strings.Contains(text, "quota exhausted") || strings.Contains(text, "quota exceeded") || strings.Contains(text, "insufficient_quota") || strings.Contains(text, "limit exceeded") {
+				return true
+			}
+		}
+		for _, child := range typed {
+			if qwenQuotaExhaustedValue(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if qwenQuotaExhaustedValue(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func qwenResetTimeFromText(text string, now time.Time) (time.Time, bool) {
+	var resetAt time.Time
+	found := false
+	forEachJSONValue(text, func(decoded any) bool {
+		if at, ok := qwenResetTimeValue(decoded, now); ok {
+			resetAt, found = at, true
+			return true
+		}
+		return false
+	})
+	return resetAt, found
+}
+
+func qwenResetTimeValue(value any, now time.Time) (time.Time, bool) {
+	if object, ok := value.(map[string]any); ok {
+		for _, key := range []string{"reset_at", "resetAt", "resets_at", "resetsAt", "reset_time", "resetTime"} {
+			if raw, exists := object[key]; exists {
+				if at, ok := parseResetValue(raw, now, false); ok {
+					return at, true
+				}
+			}
+		}
+		for _, key := range []string{"resets_in_seconds", "resetsInSeconds", "retry_after_seconds", "retryAfterSeconds"} {
+			if raw, exists := object[key]; exists {
+				if at, ok := parseResetValue(raw, now, true); ok {
+					return at, true
+				}
+			}
+		}
+		for _, child := range object {
+			if at, ok := qwenResetTimeValue(child, now); ok {
+				return at, true
+			}
+		}
+	}
+	if list, ok := value.([]any); ok {
+		for _, child := range list {
+			if at, ok := qwenResetTimeValue(child, now); ok {
+				return at, true
+			}
+		}
+	}
+	return time.Time{}, false
 }
 
 // xaiFreeUsageResetTimeFromEvent reports whether an xAI free-usage exhaustion
