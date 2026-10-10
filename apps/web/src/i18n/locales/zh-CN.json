@@ -1549,6 +1549,7 @@
     "selection_mode_hint": "选择模式：点击凭证行即可选中或取消选中。",
     "auto_start_stop": "自动启停",
     "auto_start_stop_aria": "自动启停：额度自动停用与恢复",
+    "auto_start_stop_tooltip_aria": "自动启停说明",
     "auto_start_stop_loading": "正在读取自动启停状态…",
     "auto_start_stop_unavailable": "未连接 Manager 服务，自动启停暂不可用。",
     "auto_start_stop_load_failed": "读取自动启停状态失败：{{message}}",

@@ -1551,6 +1551,7 @@
     "selection_mode_hint": "Selection mode: click a credential row to select or deselect it.",
     "auto_start_stop": "Auto start/stop",
     "auto_start_stop_aria": "Auto start/stop automatic quota disable and recovery",
+    "auto_start_stop_tooltip_aria": "Auto start/stop information",
     "auto_start_stop_loading": "Reading auto start/stop status…",
     "auto_start_stop_unavailable": "Auto start/stop is unavailable because the Manager service is not connected.",
     "auto_start_stop_load_failed": "Failed to read auto start/stop status: {{message}}",
