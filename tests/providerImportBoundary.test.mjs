@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -175,6 +176,45 @@ describe('provider import boundary contract', () => {
     const root = makeRepo();
 
     expect(runBoundaryCheck({ root }).ok).toBe(true);
+  });
+
+  it('ignores gitignored local build artifacts inside an imported provider tree', () => {
+    const manifest = withProviders({ ...baseProvider(), status: 'imported' });
+    const root = makeRepo({
+      manifest,
+      providerFiles: {
+        'providers/opencode-go/LICENSE': 'MIT',
+        'providers/opencode-go/go.mod': 'module x\n',
+        'providers/opencode-go/bin/opencode-go-cliproxyapi-windows-amd64.dll': 'MZ',
+        'providers/opencode-go/.gitignore': 'bin/\n',
+      },
+    });
+    execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+
+    const { ok, findings } = runBoundaryCheck({ root });
+
+    expect(findings).toEqual([]);
+    expect(ok).toBe(true);
+  });
+
+  it('still rejects an unignored provider binary in a git repository', () => {
+    const manifest = withProviders({ ...baseProvider(), status: 'imported' });
+    const root = makeRepo({
+      manifest,
+      providerFiles: {
+        'providers/opencode-go/LICENSE': 'MIT',
+        'providers/opencode-go/go.mod': 'module x\n',
+        'providers/opencode-go/bin/opencode-go-cliproxyapi-windows-amd64.dll': 'MZ',
+      },
+    });
+    execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+
+    const { ok, findings } = runBoundaryCheck({ root });
+
+    expect(ok).toBe(false);
+    expect(findings.some((finding) => finding.includes('opencode-go-cliproxyapi-windows-amd64.dll'))).toBe(
+      true
+    );
   });
 
   it('accepts a clean imported provider tree', () => {

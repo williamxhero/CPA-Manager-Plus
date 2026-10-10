@@ -97,6 +97,27 @@ export const listFiles = (root, relativeDir = '.') => {
   const results = [];
   const start = path.join(root, relativeDir);
   if (!existsSync(start)) return results;
+  const prefix = relativeDir === '.' ? '' : `${relativeDir.replace(/\\/g, '/')}/`;
+
+  // SPEC5: when the tree is a git worktree, only consider files git would
+  // track (tracked + untracked-but-not-ignored). Local build artifacts under
+  // providers/*/bin are gitignored and must not fail the boundary contract.
+  try {
+    const output = execFileSync(
+      'git',
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', relativeDir],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    return output
+      .split('\0')
+      .filter(Boolean)
+      .map((entry) => entry.replace(/\\/g, '/'))
+      .filter((entry) => !prefix || entry.startsWith(prefix))
+      .map((entry) => entry.slice(prefix.length))
+      .sort();
+  } catch {
+    // Not a git worktree (e.g. a temp fixture): fall back to a filesystem walk.
+  }
 
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
