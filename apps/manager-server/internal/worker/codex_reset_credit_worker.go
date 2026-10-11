@@ -47,6 +47,8 @@ type CodexResetCreditWorker struct {
 	enabled   bool
 	now       func() time.Time
 	interval  time.Duration
+	wake      chan struct{}
+	started   bool
 }
 
 // SetHTTPClient allows behavior tests to inject an httptest transport.
@@ -60,7 +62,7 @@ func (w *CodexResetCreditWorker) SetHTTPClient(client *http.Client) {
 }
 
 func NewCodexResetCreditWorker(st *store.Store) *CodexResetCreditWorker {
-	return &CodexResetCreditWorker{store: st, client: &http.Client{Timeout: 30 * time.Second}, authFiles: cpaauthfiles.New(nil), enabled: true, now: time.Now, interval: time.Hour}
+	return &CodexResetCreditWorker{store: st, client: &http.Client{Timeout: 30 * time.Second}, authFiles: cpaauthfiles.New(nil), enabled: true, now: time.Now, interval: time.Hour, wake: make(chan struct{}, 1)}
 }
 
 func (w *CodexResetCreditWorker) SetClock(now func() time.Time) {
@@ -90,13 +92,22 @@ func (w *CodexResetCreditWorker) SetEnabled(enabled bool) {
 	w.mu.Unlock()
 }
 
+// UpdateRuntimeConfig wakes a started worker because collector startup can publish
+// credentials after the automation runtime's initial tick.
 func (w *CodexResetCreditWorker) UpdateRuntimeConfig(_ context.Context, cfg collectorpkg.RuntimeConfig) {
 	if w == nil {
 		return
 	}
 	w.mu.Lock()
 	w.cfg = cfg
+	started, wake := w.started, w.wake
 	w.mu.Unlock()
+	if started && wake != nil {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // Start refreshes configured Codex credentials hourly and consumes only credits
@@ -105,6 +116,17 @@ func (w *CodexResetCreditWorker) Start(ctx context.Context) {
 	if w == nil {
 		return
 	}
+	w.mu.Lock()
+	if w.started {
+		w.mu.Unlock()
+		return
+	}
+	w.started = true
+	if w.wake == nil {
+		w.wake = make(chan struct{}, 1)
+	}
+	wake := w.wake
+	w.mu.Unlock()
 	go func() {
 		_ = w.refreshAndConsume(ctx)
 		w.mu.RLock()
@@ -116,6 +138,8 @@ func (w *CodexResetCreditWorker) Start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-wake:
+				_ = w.refreshAndConsume(ctx)
 			case <-ticker.C:
 				_ = w.refreshAndConsume(ctx)
 			}
