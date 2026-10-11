@@ -8,10 +8,28 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	collectorpkg "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/collector"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 )
+
+func TestCodexResetCreditAutoConsumeDecision(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000)
+	count := int64(1)
+	if !shouldAutoConsumeResetCredit(`{"reset_at":"1799999999000"}`, &count, now) {
+		t.Fatal("due reset credit was not eligible for automatic consumption")
+	}
+	if shouldAutoConsumeResetCredit(`{"reset_at":"1800000001000"}`, &count, now) {
+		t.Fatal("future reset credit was eligible for automatic consumption")
+	}
+	if shouldAutoConsumeResetCredit(`{"available_count":1}`, &count, now) {
+		t.Fatal("reset credit without authoritative reset time was eligible")
+	}
+	if shouldAutoConsumeResetCredit(`{"reset_at":"1799999999000"}`, nil, now) {
+		t.Fatal("reset credit without available count was eligible")
+	}
+}
 
 func TestCodexResetCreditFetchFailsClosedWithoutCycle(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "usage.sqlite"))

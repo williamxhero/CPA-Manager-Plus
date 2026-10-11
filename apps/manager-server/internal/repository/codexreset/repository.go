@@ -46,7 +46,9 @@ func (r *repository) RecordObservation(ctx context.Context, entry LedgerEntry) e
 func (r *repository) ClaimConsumption(ctx context.Context, credentialKey, cycleKey, requestID string) (bool, error) {
 	res, err := r.db.ExecContext(ctx, `insert or ignore into codex_reset_credit_ledger
 		(credential_key, cycle_key, redeem_request_id, status, created_at_ms, updated_at_ms)
-		values (?, ?, ?, 'claimed', ?, ?)`, credentialKey, cycleKey, requestID, time.Now().UnixMilli(), time.Now().UnixMilli())
+		select ?, ?, ?, 'claimed', ?, ?
+		where not exists (select 1 from codex_reset_credit_ledger where credential_key=? and cycle_key=? and status in ('claimed', 'consumed'))`,
+		credentialKey, cycleKey, requestID, time.Now().UnixMilli(), time.Now().UnixMilli(), credentialKey, cycleKey)
 	if err != nil {
 		return false, err
 	}

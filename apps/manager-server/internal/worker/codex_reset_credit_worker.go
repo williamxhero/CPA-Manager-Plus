@@ -45,6 +45,8 @@ type CodexResetCreditWorker struct {
 	mu        sync.RWMutex
 	cfg       collectorpkg.RuntimeConfig
 	enabled   bool
+	now       func() time.Time
+	interval  time.Duration
 }
 
 // SetHTTPClient allows behavior tests to inject an httptest transport.
@@ -58,7 +60,25 @@ func (w *CodexResetCreditWorker) SetHTTPClient(client *http.Client) {
 }
 
 func NewCodexResetCreditWorker(st *store.Store) *CodexResetCreditWorker {
-	return &CodexResetCreditWorker{store: st, client: &http.Client{Timeout: 30 * time.Second}, authFiles: cpaauthfiles.New(nil), enabled: true}
+	return &CodexResetCreditWorker{store: st, client: &http.Client{Timeout: 30 * time.Second}, authFiles: cpaauthfiles.New(nil), enabled: true, now: time.Now, interval: time.Hour}
+}
+
+func (w *CodexResetCreditWorker) SetClock(now func() time.Time) {
+	if w == nil || now == nil {
+		return
+	}
+	w.mu.Lock()
+	w.now = now
+	w.mu.Unlock()
+}
+
+func (w *CodexResetCreditWorker) SetInterval(interval time.Duration) {
+	if w == nil || interval <= 0 {
+		return
+	}
+	w.mu.Lock()
+	w.interval = interval
+	w.mu.Unlock()
 }
 
 func (w *CodexResetCreditWorker) SetEnabled(enabled bool) {
@@ -79,25 +99,63 @@ func (w *CodexResetCreditWorker) UpdateRuntimeConfig(_ context.Context, cfg coll
 	w.mu.Unlock()
 }
 
-// Start refreshes configured Codex credentials hourly. It intentionally does
-// not consume credits: redemption is an explicit, ledger-guarded operation.
+// Start refreshes configured Codex credentials hourly and consumes only credits
+// with fresh evidence that their authoritative reset time has arrived.
 func (w *CodexResetCreditWorker) Start(ctx context.Context) {
 	if w == nil {
 		return
 	}
 	go func() {
-		_ = w.Refresh(ctx)
-		ticker := time.NewTicker(time.Hour)
+		_ = w.refreshAndConsume(ctx)
+		w.mu.RLock()
+		interval := w.interval
+		w.mu.RUnlock()
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				w.Refresh(ctx)
+				_ = w.refreshAndConsume(ctx)
 			}
 		}
 	}()
+}
+
+func (w *CodexResetCreditWorker) refreshAndConsume(ctx context.Context) error {
+	if err := w.Refresh(ctx); err != nil {
+		return err
+	}
+	w.mu.RLock()
+	cfg, enabled, now := w.cfg, w.enabled, w.now
+	w.mu.RUnlock()
+	if !enabled || strings.TrimSpace(cfg.CPAUpstreamURL) == "" || strings.TrimSpace(cfg.ManagementKey) == "" {
+		return nil
+	}
+	files, err := w.authFiles.Fetch(ctx, cfg.CPAUpstreamURL, cfg.ManagementKey)
+	if err != nil {
+		return err
+	}
+	if now == nil {
+		now = time.Now
+	}
+	for _, file := range files {
+		if !strings.EqualFold(file.Provider, "codex") || file.Disabled {
+			continue
+		}
+		credential := CodexCredential{CredentialKey: file.Name, AuthIndex: file.AuthIndex, AccountID: file.AccountID}
+		snapshot, err := w.Fetch(ctx, cfg, credential)
+		if err != nil {
+			return err
+		}
+		if shouldAutoConsumeResetCredit(snapshot.DetailJSON, snapshot.AvailableCount, now()) {
+			if _, err := w.Consume(ctx, cfg, credential); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (w *CodexResetCreditWorker) Refresh(ctx context.Context) error {
@@ -263,6 +321,65 @@ func cycleValue(payload map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func shouldAutoConsumeResetCredit(detail string, count *int64, now time.Time) bool {
+	if count == nil || *count <= 0 {
+		return false
+	}
+	resetAt, ok := resetAtMS(detail)
+	return ok && resetAt <= now.UnixMilli()
+}
+
+func resetAtMS(detail string) (int64, bool) {
+	var payload any
+	if json.Unmarshal([]byte(detail), &payload) != nil {
+		return 0, false
+	}
+	var visit func(any) (int64, bool)
+	visit = func(value any) (int64, bool) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for _, key := range []string{"reset_at", "resetAt"} {
+				if raw, ok := typed[key]; ok {
+					if parsed, ok := resetValueMS(raw); ok {
+						return parsed, true
+					}
+				}
+			}
+			for _, child := range typed {
+				if parsed, ok := visit(child); ok {
+					return parsed, true
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if parsed, ok := visit(child); ok {
+					return parsed, true
+				}
+			}
+		}
+		return 0, false
+	}
+	return visit(payload)
+}
+
+func resetValueMS(value any) (int64, bool) {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return 0, false
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, text); err == nil {
+		return parsed.UnixMilli(), true
+	}
+	var number float64
+	if _, err := fmt.Sscan(text, &number); err != nil || number <= 0 {
+		return 0, false
+	}
+	if number < 1e12 {
+		number *= 1000
+	}
+	return int64(number), true
 }
 func newRedeemRequestID() (string, error) {
 	var b [16]byte
